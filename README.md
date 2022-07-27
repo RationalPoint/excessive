@@ -6,7 +6,7 @@ in
 [1] Xander Faber, Jon Grantham, and Everett Howe. "On the Maximum Gonality of
     a Curve Over a Finite Field." Preprint, 2022. arXiv: ??
 
-CODE AUTHORS: Xander Faber (awfaber@super.org) and Everett Howe()
+CODE AUTHORS: Xander Faber (awfaber@super.org) and Everett Howe(however@alumni.caltech.edu)
 
 LICENSE: [GPL-3.0 License](LICENSE)
 
