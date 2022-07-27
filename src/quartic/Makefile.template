@@ -1,0 +1,34 @@
+# Rename this file to Makefile and set appropriate paths
+
+CC = /usr/public/opt/gcc-9.3.0/bin/gcc -g -Wall $(CFLAGS) -O3
+
+LDLIBS = -lm -lgmp -lflint
+FLINT_INCLUDE = /usr/public/include/flint
+FLINT_LIB = /usr/public/lib
+CFLAGS = -I$(FLINT_INCLUDE) -L$(FLINT_LIB)
+
+utilities.o: quartic.h
+
+fields.o: quartic.h
+
+points.o: quartic.h fields.o
+
+curves.o: quartic.h fields.o points.o
+
+matrix_entries.o: quartic.h fields.o utilities.o
+
+pgl_action.o: quartic.h fields.o matrix_entries.o utilities.o 
+
+quartic_search: fields.o points.o curves.o pgl_action.o matrix_entries.o utilities.o
+
+test: quartic_search
+	./quartic_search 3 test.data 1 0
+
+find_points: fields.o points.o curves.o pgl_action.o matrix_entries.o utilities.o
+
+clean:
+	rm -rf *.o
+	rm -rf *.dSYM
+	rm -f quartic_search
+	rm -f find_points
+	rm -f test.data

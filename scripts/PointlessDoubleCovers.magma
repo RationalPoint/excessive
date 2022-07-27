@@ -1,0 +1,444 @@
+// PointlessDoubleCovers.magma, version 1.0, 1 July 2022.
+
+/*
+The Magma programs in this file are associated with the paper
+
+             On the Maximum Gonality of a Curve over a Finite Field
+
+by Xander Faber, Jon Grantham, and Everett W. Howe
+
+The function
+  value
+is a utility function used to compute the number of points lying over a point
+on an elliptic curve E in a given double cover of E.
+
+The function 
+  pointless_double_covers
+takes as input an elliptic curve E over a finite field of characteristic greater
+than 2. The function enumerates all isomorphism classes genus-3 double covers
+of C, and counts the number of points on these double covers.  If the curve has
+no points, we add it to the list of curves to return. The function returns this
+list after going through all possible double covers.
+
+The function 
+  pointless_quartics_over_E
+takes as input an elliptic curve E over a finite field K of characteristic 
+greater than 2 and cardinality greater than 5. The function computes the set 
+of pointless plane quartics over K, up to isomorphism, that have degree-2 maps 
+to E. It outputs a list of this quartics, normalized using the function 
+"normal_form" from the file PointlessQuartics.magma.
+
+
+
+In the final section of the paper, we say that it is straightforward to 
+enumerate the pointless plane quartic double covers of the curve y^2 = x^3 + x 
+over GF(29). This can be accomplished using the programs in this file, by
+running
+
+  pointless_quartics_over_E(EllipticCurve([GF(29)| 0,0,0,1,0]));
+  
+The output is the one-element list [7*x^4 + 7*y^4 + z^4]. By replacing x and y
+in this quartic with 11*x and 11*y, we find that the curve defined by the 
+quartic is isomorphic to x^4 + y^4 + z^4 = 0.
+
+*/
+
+
+/*
+Version history:
+
+------------------------------------------------------------------------
+Version 0.9 --- 21 November 2021: 
+   Prerelease version.
+
+Version 1.0 --- 1 July 2022: 
+   First released version.
+   Removed some functions not relevant to the final paper.
+   Renamed the function pointless_double_covers.
+   Added the function pointless_quartics_over_E.
+   Revised comments to better explain what we are doing, and corrected typos.
+*/
+
+// Load this so that we have access to the function "normal_form", which gives
+// a normal form to plane quartics with two non-colinear places of degree 2.
+
+load "PointlessQuartics.magma";
+
+
+
+function value(f,place)
+  /*
+  Given a function f on a curve C, and a degree-1 place of C corresponding to a
+  point P, return the value (f/u^n)(P), where 
+    u is a uniformizer at P, and
+    n is the largest *even* integer such that f/u^n has no pole at P.
+
+  (This quantity determines how many points lie over P in the
+  extension z^2 = f.)
+  */
+  
+  d := Valuation(f,place);
+
+  if d eq 0 then 
+    return f(RepresentativePoint(place));
+  end if;
+
+  if IsOdd(d) then 
+    return 0; 
+  end if;
+ 
+  u := UniformizingParameter(place);
+  return (f/u^d)(RepresentativePoint(place));
+
+end function;
+
+
+
+function pointless_double_covers(E : verbose:=true)
+  /*
+  Given an elliptic curve E over a finite field of characteristic greater
+  than 2, compute all genus-3 double covers of E (up to isomorphism).  Keep
+  track of the double covers that have no rational points. Return the list of
+  these pointless double covers.
+  */
+  
+  K := BaseRing(E);
+  p := Characteristic(K);
+  q := #K;
+  RR<xx,yy>:=PolynomialRing(K,2);
+  
+  // Find a nonsquare in K.  If K is not a prime field, Magma's generator for K
+  // will do.  If K is a prime field, find the smallest positive integer whose 
+  // image in K is a nonsquare.
+
+  ns := K.1;
+  if ns eq 1 then
+    repeat ns+:=1;
+    until not IsSquare(ns);
+  end if;
+  assert not IsSquare(ns);
+  
+  
+  // Construct representatives for P^1(K):
+  
+  projective_line := [ [a,1] : a in K ] cat [ [K|1,0] ];
+  
+  // First, we take a simplified Weierstrass model for E, so that
+  // E is defined by y^2 = (cubic in x).
+  // 
+  // A genus-3 double cover E can be written z^2 = f for a function 
+  // f on E with 
+  // 
+  //         div f = (P1) + ... + (P4)  + 2*(Q) - 6*(oo).
+  // 
+  // Note that if we translate points on E by a rational point R, this divisor
+  // becomes
+  //
+  // (P1 + R) + ... + (P4 + R) + 2*(Q + R) - 6*(R)
+  //
+  // and since (Q + R) - 3*(R) is equivalent to (Q - 2*R) - 3*(oo),
+  // we can modify this divisor by twice a principal divisor to obtain 
+  //
+  //  (P1 + R) + ... + (P4 + R) + 2*(Q - 2*R) - 6*(oo).
+  //
+  // The point is that we don't need to consider all possible Q; it will suffice
+  // to choose one Q from each equivalence class of E(K) mod 2 E(K).
+  //
+  // The automorphism group of E also acts on the divisors, so in fact we only
+  // need one Q from each equivalence class of E(K) mod 2 E(K) up to the action
+  // of Aut(E).
+  // 
+  // Since our cover is supposed to have no points, no rational point of E can 
+  // ramify. So none of the P's is equal to Q or oo, and in fact the P's form 
+  // either two Galois orbits of size 2, or one of size 4.
+  
+  // Get a simplified Weierstrass model for our curve. In characteristic > 3, 
+  // this is a model of the form y^2 = x^3 + a*x + b.  In characteristic 3, it 
+  // is a model of the form y^2 = cubic.
+  
+  E := SimplifiedModel(E);
+  rhs := HyperellipticPolynomials(E);
+  assert (p eq 3) or (Coefficient(rhs,2) eq 0);
+  
+  // Compute the automorphisms of E of the form (x,y) --> (u*x,v*y) for pairs
+  // [u,v] in K.
+
+  // Usually the only such automorphisms are [1,1] and [1,-1]. The exceptions
+  // are enumerated below.
+  
+  if Coefficient(rhs,0) eq 0 and 1 eq q mod 4 then
+    // We have y^2 = x^3 + a*x, with CM by Z[i].
+    i := Roots(Parent(rhs).1^2 + 1)[1][1];
+    autos := [ [-1,i], [1,-1], [-1,-i], [1,1] ];
+  
+  elif Coefficient(rhs,1) eq 0 and 1 eq q mod 3 then
+    // We have y^2 = x^3 + b, with CM by Z[zeta_3].
+    omega := Roots(Parent(rhs).1^2 + Parent(rhs).1 + 1)[1][1];
+    autos := [ [omega, 1],[omega^2, 1],[1, 1],
+               [omega,-1],[omega^2,-1],[1,-1] ];
+  else
+    // The generic case.
+    autos := [ [1,1],[1,-1] ];
+  end if;
+    
+  
+  // The variable nopointlist keeps track of all of the pointless covers we have
+  // found so far.
+    
+  nopointlist := [];
+  
+  
+  // First compute the double covers where we may take Q = oo, so that we look
+  // at covers z^2 = f where the only pole of f is at oo and where the order of
+  // the pole of f at infinity is 4. We only need to look at the f up to 
+  // multiplication by squares and up to the action of the automorphism group.
+    
+  F<x,y>:=FunctionField(E);
+  oo := Identity(E);
+  finite_points := [[P[1],P[2]] : P in E | not P eq oo];
+    
+  // Our functions f will be in L(4*oo).  We will use the basis {x^2, y, x, 1} 
+  // for this Riemann-Roch space.
+        
+  // "values" will be a list of vectors that give the values of these basis
+  // functions on the elements of E.  However, the first element of "values"
+  // will be (1,0,0,0), which gives the coefficient of u^-4 in the Laurent 
+  // expansion of these basis functions at oo, where u is a uniformizer at oo.
+  // This will let us obtain the correct number of points lying over oo.
+    
+  values := [Vector([K|1,0,0,0])];
+  for P in finite_points do
+    values cat:= [Vector([P[1]^2, P[2], P[1], 1])];
+  end for;
+  
+  // Start with by looking at the f with a pole of order 4.  Up to a constant 
+  // factor, our f will be
+  //    x^2 + c3*y + c2*x + c1.
+  
+  // Suppose an automorphism multiplies x by u and y by v. Then the function 
+  //    x^2 + c3*y + c2*x + c1
+  // gets taken to
+  //    u^2*x^2+ c3*v*y + ...
+  // which differs by a scalar from
+  //    x^2 + c3*v/u^2 * y + ...
+  // We only need let c3 range over a set of representatives of K modulo this
+  // action of the automorphism group.
+    
+    
+  case #autos:
+    when 2: roots_of_1 := [K!1,-1];
+    when 4: roots_of_1 := [1,i,-1,-i];
+    when 6: roots_of_1 := [1,-omega,omega^2,-omega^3,omega^4,-omega^5];
+  end case;
+  // So roots_of_1 consists of the elements of the form v/u^2 for automorphisms
+  // [u,v] of E.
+    
+    
+  // The cover z^2 = f has rational points at infinity, so we will look only at
+  // the cover z^2 = ns*f. 
+    
+  c3reps := [a : a in K | a eq Sort([a*w : w in roots_of_1])[1]];
+  
+  for c3 in c3reps, c2, c1 in K do
+    w := Vector([1,c3,c2,c1]);
+  
+    // Initialize the number of square, nonsquare, and zero values of f. 
+
+    square := 0;
+    nonsquare := 0;
+    zero := 0;
+  
+    for v in values do
+      u := InnerProduct(v,w);
+      if u eq 0 then
+        zero +:= 1;
+      elif IsSquare(u) then
+        square +:= 1;
+      else 
+        nonsquare +:=1;
+      end if;
+    end for;
+    
+    count := zero + 2*nonsquare;
+    // The number of points on z^2 = ns*f.
+  
+    if count eq 0 then
+      // Pointless!  But is it irreducible, and of genus 3?  Check by looking 
+      // at the decomposition of the divisor of f. If there are four geometric
+      // points of odd degree in the divisor, we have the right genus.
+  
+      ff := w[1]*xx^2 + w[2]*yy + w[3]*xx + w[4];
+      f := Evaluate(ff,[x,y]);
+      D := Decomposition(Divisor(f));
+      ramification := &+([0] cat [Degree(d[1]) : d in D | IsOdd(d[2])]);
+  
+      if ramification eq 4 then
+        // OK, it looks like we've got an actual curve.
+  
+        nopointlist cat:= [Coefficients(rhs) cat [MonomialCoefficient(ns*ff,m) : m in [xx^3, xx^2, xx, 1, xx*yy, yy]] ];
+ 
+        if verbose then 
+          printf "y^2 = %o,    z^2 = %o\n", rhs, ns*f;
+        end if;
+      end if;
+    end if;
+  end for;
+    
+  // Q should range over the classes of E(K) modulo 2*E(K) up to the 
+  // automorphism group of E.  We've already considered the case of the class
+  // of oo.  So now we must compute representatives for the other classes. But 
+  // we'd like to avoid taking a representative that is a 2-torsion point, 
+  // because that would introduce some special cases in later computations.
+    
+  replist := [];
+  twoE := [P : P in {2*Q : Q in E}];
+  taken := Set(twoE);
+  while #taken ne #E do
+    remainder := Sort([ [P[1],P[2],P[3]] : P in E | not P in taken ]);
+    index := 0;
+    repeat 
+      index +:= 1;
+      Q := E!remainder[index];
+    until not 2*Q eq oo;
+    replist cat:= [Q];
+    taken join:= { (E![Q[1]*A[1],Q[2]*A[2]]) + T : A in autos, T in twoE };
+  end while;
+    
+  
+  // Now for each representative point Q, we modify the model of E so that the
+  // x-coordinate of Q is 0. Our curve will then be of the form 
+  // y^2 = x^3 + a*x^2 + b*x + c^2.
+  
+  for Q in replist do
+    // Announce what Q we are looking at, to provide some feedback.
+    if verbose then print Q; end if;
+  
+    rhsQ := Evaluate(rhs,Parent(rhs).1 + Q[1]);
+    a := Coefficient(rhsQ,2);
+    b := Coefficient(rhsQ,1);
+    c := Q[2];
+    assert c^2 eq Coefficient(rhsQ,0);
+  
+  
+    // New curve, new function field, new coordinates for Q...
+    EQ := EllipticCurve(rhsQ);
+    FQ<x,y>:=FunctionField(EQ);
+    QQ := EQ![0,c];
+    ooQ := Identity(EQ);
+    m := b/(2*c);
+    // The tangent line to EQ at QQ is y = m*x + c.
+  
+  
+    // The points on EQ other than ooQ and QQ:
+    finite_points_Q := [[P[1],P[2]] : P in EQ | not P eq ooQ and not P eq QQ];
+  
+    // Now we take f to lie in L(6*ooQ - 2*QQ).  This space is spanned by x^3,
+    // x*(y-c), x^2, and y - m*x - c.
+  
+    values := [Vector([K!1,0,0,0]),
+               Vector([0,b/(2*c),1,(4*a*c^2-b^2)/(8*c^3)])];
+  
+    // The first value vector gives the coefficient of u^-6 in the Laurent 
+    // expansion of the basis functions at ooQ, for a uniformizer u at ooQ. The
+    // second value vector gives the coefficient of u^2 in the Laurent expansion
+    // of the basis function at QQ, for a uniformizer u at QQ. Assuming that the
+    // genus of the double cover z^2 = f is actually equal to 3, these leading
+    // terms of the expansions at ooQ and QQ are what we need in order to 
+    // determine whether ooQ and QQ split, are inert, or are ramified in the 
+    // cover.
+  
+    for P in finite_points_Q do
+      values cat:= [Vector([P[1]^3, P[1]*(P[2]-c), P[1]^2, P[2]-m*P[1]-c])];
+    end for;
+  
+    // The point-counting strategy is as before:
+  
+    for c3, c2, c1 in K do
+      w := Vector([1,c3,c2,c1]);
+      square := 0;
+      nonsquare := 0;
+      zero := 0;
+  
+      for v in values do
+        u := InnerProduct(v,w);
+        if u eq 0 then
+          zero +:= 1;
+        elif IsSquare(u) then
+          square +:= 1;
+        else 
+          nonsquare +:=1;
+        end if;
+      end for;
+  
+      // Again, in z^2 = f the infinite point splits, so that is not a 
+      // pointless cover. Therefore we only look at z^2 = ns*f.
+      count := zero + 2*nonsquare;
+  
+      if count eq 0 then
+        ff := w[1]*xx^3 + w[2]*xx*(yy-c) + w[3]*xx^2 + w[4]*(yy-m*xx-c);
+        f := Evaluate(ff,[x,y]);
+        D := Decomposition(Divisor(f));
+        ramification := &+([0] cat [Degree(d[1]) : d in D | IsOdd(d[2])]);
+        if ramification eq 4 then
+          nopointlist cat:= [Coefficients(rhsQ) cat [MonomialCoefficient(ns*ff,m) : m in [xx^3, xx^2, xx, 1, xx*yy, yy]] ];
+          if verbose then
+            printf "y^2 = %o,    z^2 = %o\n", rhsQ, ns*f;
+          end if;
+        end if;
+      end if;
+    end for;
+  end for;
+  
+  return nopointlist;
+
+end function;
+
+
+
+
+
+
+function pointless_quartics_over_E(E)
+  // Given an elliptic curves E over a finite field K of characteristic > 2
+  // and of cardinality > 5, compute all of the plane quartics that have 
+  // degree-2 maps to E.
+  
+  // The function pointless_double_covers will give us models for these covers
+  // of the form y^2 = f(x), z^2 = g(x,y). Here, we take those models,
+  // check to see whether they are hyperelliptic, and --- for the 
+  // non-hyperelliptic ones --- we compute a plane model, which we then
+  // normalize using the function normal_form. By this normalization, we can 
+  // ensure that each isomorphism class occurs exactly once in the list.
+  
+  K := BaseRing(E);
+  A3<u,v,w>:=AffineSpace(K,3);
+  P2<x,y,z>:=ProjectivePlane(K);
+  quartics := {};
+  
+  covers := pointless_double_covers(E : verbose := false);
+  
+  // Each element of covers is of the form 
+  // [A, Ax, Axx, Axxx, Bxxx, Bxx, Bx, B, Bxy, By], 
+  // corresponding to the curve 
+  // v^2 = Axxx*u^3 + Axx*u^2 + Ax*u + A
+  // w^2 = Bxxx*u^3 + Bxx*u^2 + Bx*u + B + Bxy*u*c + By*v
+  
+  for c in covers do
+    A, Ax, Axx, Axxx, Bxxx, Bxx, Bx, B, Bxy, By := Explode(c);
+    f := -v^2 + Axxx*u^3 + Axx*u^2 + Ax*u + A;
+    g := -w^2 + Bxxx*u^3 + Bxx*u^2 + Bx*u + B + Bxy*u*v + By*v;
+    C := Curve(A3,[f,g]);
+    if not IsHyperelliptic(C) then
+      Q := Image(CanonicalMap(C));
+      h := Equations(Q)[1];
+      quartics join:= {normal_form(Evaluate(h,[x,y,z]))};
+    end if;
+  end for;
+  
+  quartics := Sort([a : a in quartics]);
+  return quartics;
+end function;
+
+    
+    
+  

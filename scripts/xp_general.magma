@@ -1,0 +1,364 @@
+/* -----------------------------------------------------------------------------
+
+This script can be called with
+
+  $ magma g:=[genus] infile:=[filename] outfile:=[filename] xp_general.magma  
+
+where "g" is the genus of the curves in question and "infile" contains the
+output from the plane_search C application.  Each line of "infile" is an integer
+whose bit representation ends with three 1s: these are the coefficients of a
+polynomial F of degree g+1 over GF(2) that has an effective divisor of degree
+g-3, that does not vanish at any rational point, and such that there is no
+smooth point of degree dividing g-2 on F = 0. We restrict to genus 3, ..., 7.
+
+The script searches for those polynomials that are irreducible of genus g and
+whose number of places of varying degrees is compatible with having gonality
+g+1. Upon finding such a curve, it computes the gonality and writes the curve to
+disk in "outfile", along with the point count and gonality.
+
+From preliminary searches, we learned that only curves of genus 3, 5, 7 survive
+the point-counting phase of testing, so we do not bother with a gonality
+function for genus 4 or 6.
+
+----------------------------------------------------------------------------- */
+
+until_print := 2^15;      // polynomials to analyze before printing an update
+debug       := false;     // whether to print first 10 polynomial survivors
+
+// Fix annoying line breaks in Magma printing
+SetAutoColumns(false);
+SetColumns(0);
+
+/* -------------------------------------------------------------------------- */
+
+// Input: C = irreducible curve, g = target genus
+// Output:
+//   * (bool) whether C has genus g with one of the correct point counts
+//   * (integer) the genus
+//   * (sequence of integers) the point counts [a_1, ..., a_g] if the genus is g,
+//     otherwise []
+CheckGenusAndPoints := function(C, g)
+  gC := Genus(C);
+  if gC ne g then
+    return false, gC, [];
+  end if;
+
+  // g = 3 ==> smooth quartic with no rational point ==> gonality 4
+  if g eq 3 then
+    return true, g, [#Places(C,d) : d in [1..g]];
+  end if;
+
+  // g = 4 ==> cannot have effective divisor of g-3 *and* no rational point
+  if g eq 4 then
+    return false, g, [];
+  end if;
+
+  // g = 5 ==> only need to check that a_3 = 0
+  if g eq 5 then
+    d3 := #Places(C,3);
+    if d3 eq 0 then
+      return true, g, [#Places(C,d) : d in [1..g]];
+    end if;
+    return false, g, [];
+  end if;
+
+  // g = 6 ==> check that a_2 = a_4 = 0
+  if g eq 6 then
+    for d in [2,4] do
+      if #Places(C,d) ne 0 then
+        return false, g, [];
+      end if;
+    end for;
+    return true, g, [#Places(C,d) : d in [1..g]];
+  end if;
+
+  // g = 7 ==> check that a_5 = 0 and a_2 * a_3 = 0
+  if g eq 7 then
+    if #Places(C,5) ne 0 then
+      return false, g, [];
+    end if;
+    if #Places(C,2)*#Places(C,3) ne 0 then
+      return false, g, [];
+    end if;
+    return true, g, [#Places(C,d) : d in [1..g]];
+  end if;
+end function;
+
+/* -------------------------------------------------------------------------- */
+
+// Input: C = irreducible curve of genus 5 with point count [0, *, 0, *, *]
+// Output: gonality of C
+GonalityForGenus5 := function(C)
+
+  quad_pts := Places(C,2);
+
+  // Gonality 2 check
+  for P in quad_pts do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 2; end if;
+  end for;
+
+  // Gonality 4 = 2+2 check
+  for i in [1..#quad_pts] do
+    for j in [1..i] do
+      P := quad_pts[i];
+      Q := quad_pts[j];
+      D := Divisor(P) + Divisor(Q);
+      dim := Dimension(RiemannRochSpace(D));
+      if  dim gt 1 then return 4; end if;
+    end for;
+  end for;
+
+  // Irreducible gonality 4 check
+  for P in Places(C,4) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 4; end if;
+  end for;
+
+  // Gonality 5 check
+  for P in Places(C,5) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 5; end if;
+  end for;
+
+  // Gonality is not less than 6, so it must be 6.
+  return 6;
+end function;
+
+/* -------------------------------------------------------------------------- */
+
+// Input: C = irreducible curve of genus 6 with point count [0, 0, *, 0, *, *]
+// Output: gonality of C
+GonalityForGenus6 := function(C)
+  cubic_pts := Places(C,3);
+
+  // Gonality 3 check
+  for P in cubic_pts do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 3;
+    end if;
+  end for;
+
+  // Gonality 5 check
+  for P in Places(C,5) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 5; end if;
+  end for;
+
+  // Gonality 6 = 3+3 check
+  for i in [1..#cubic_pts] do
+    for j in [1..i] do
+      P := cubic_pts[i];
+      Q := cubic_pts[j];
+      D := Divisor(P) + Divisor(Q);
+      dim := Dimension(RiemannRochSpace(D));
+      if  dim gt 1 then return 6; end if;
+    end for;
+  end for;
+
+  // Irreducible gonality 6 check
+  for P in Places(C,6) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 6; end if;
+  end for;
+
+  // Gonality is not less than 7, so it must be 7.
+  return 7;
+end function;
+
+/* -------------------------------------------------------------------------- */
+
+// Input: C = irreducible curve of genus 7 with point count [0, *, *, *, 0, *, *]
+// Output: gonality of C
+GonalityForGenus7 := function(C)
+
+  quad_pts := Places(C,2);
+
+  // Gonality 2 check
+  for P in quad_pts do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 2; end if;
+  end for;
+
+  cubic_pts := Places(C,3);
+
+  // Gonality 3 check
+  for P in cubic_pts do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 3; end if;
+  end for;
+
+  // Gonality 4 = 2+2 check
+  for i in [1..#quad_pts] do
+    for j in [1..i] do
+      P := quad_pts[i];
+      Q := quad_pts[j];
+      D := Divisor(P) + Divisor(Q);
+      dim := Dimension(RiemannRochSpace(D));
+      if  dim gt 1 then return 4; end if;
+    end for;
+  end for;
+
+  quartic_pts := Places(C,4);
+
+  // Irreducible gonality 4 check
+  for P in quartic_pts do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 4; end if;
+  end for;
+
+  // Gonality 6 = 2+2+2 check
+  for i in [1..#quad_pts] do
+    for j in [1..i] do
+      for k in [1..j] do    
+        P := quad_pts[i];
+        Q := quad_pts[j];
+        R := quad_pts[k];
+        D := Divisor(P) + Divisor(Q) + Divisor(R);
+        dim := Dimension(RiemannRochSpace(D));
+        if  dim gt 1 then return 6; end if;
+      end for;
+    end for;
+  end for;
+
+  // Gonality 6 = 2+4 check
+  for P in quad_pts do
+    for Q in quartic_pts do
+      D := Divisor(P) + Divisor(Q);
+      dim := Dimension(RiemannRochSpace(D));
+      if  dim gt 1 then return 6; end if;
+    end for;
+  end for;
+  
+  // Gonality 6 = 3+3 check
+  for i in [1..#cubic_pts] do
+    for j in [1..i] do
+      P := cubic_pts[i];
+      Q := cubic_pts[j];
+      D := Divisor(P) + Divisor(Q);
+      dim := Dimension(RiemannRochSpace(D));
+      if  dim gt 1 then return 6; end if;
+    end for;
+  end for;
+
+  // Irreducible gonality 6 check
+  for P in Places(C,6) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 6; end if;
+  end for;
+
+  // Gonality 7 = 3+4 check
+  for P in cubic_pts do
+    for Q in quartic_pts do
+      D := Divisor(P) + Divisor(Q);
+      dim := Dimension(RiemannRochSpace(D));
+      if  dim gt 1 then return 7; end if;
+    end for;
+  end for;
+
+  // Irreducible gonality 7 check
+  for P in Places(C,7) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 7; end if;
+  end for;
+
+  // Gonality is not less than 8, so it must be 8.
+  return 8;
+end function;
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+// Read survivors list
+survivors := StringToIntegerSequence(Read(infile));
+fp := Open(outfile,"w");
+
+// Get genus g
+g := StringToInteger(g);
+assert(g in [3..7]); // Code only designed for genus in interval [3,7]
+
+printf "Searching for curves of genus %o and gonality %o over GF(2)\n",g,g+1;
+printf "  with an effective divisor of degree %o\n",g-3;
+  
+R<x,y,z> := PolynomialRing(GF(2),3);
+P2 := ProjectiveSpace(R);
+printf "Searching %o polynomials\n",#survivors;
+
+// Set up the monomials in the same order as the C code
+d := g + 1;
+monomials := [x^d, y^d, z^d];
+monomials cat:= [x^(d-i) * y^i : i in [1..d-1]];
+monomials cat:= [x^(d-i) * z^i : i in [1..d-1]];
+monomials cat:= [y^(d-i) * z^i : i in [1..d-1]];
+for i in [1..d-2] do
+  monomials cat:= [x^i * y^j * z^(d-i-j) : j in [1..d-i-1]];
+end for;
+
+
+t := Cputime();
+max_genus := (d-1)*(d-2)/2;
+num_curves := [0 : i in [1..max_genus+1]]; // Count curves of each genus
+cnt := 0;
+gonality_cnt := 0;
+for pol_rep in survivors do
+  pol := R!0;
+  coefs := Intseq(pol_rep,2); // Intseq gives little endian bit sequence
+  for i in [1..#coefs] do
+    pol +:= coefs[i] * monomials[i];
+  end for;
+  cnt +:= 1;
+  if (debug and cnt le 10) then print pol; end if;
+  if cnt mod until_print eq 0 then
+    printf "Tested %o polynomials in %om\n", cnt, Cputime(t)/60;
+  end if;
+  
+  if not IsIrreducible(pol) then continue; end if;
+  C := Curve(P2,pol);
+  maybe_xp, gC, pt_cnt := CheckGenusAndPoints(C,g);
+  num_curves[gC+1] +:= 1; // Store genus g in g+1 slot
+  if not maybe_xp then continue; end if;
+
+  if gC eq 3 then
+    gamma := 4; // Pointless smooth quartic has gonality 4
+  end if;
+
+  if gC eq 4 then
+    assert false; // This should never happen!
+  end if;
+
+  if gC eq 5 then
+    gamma := GonalityForGenus5(C);
+  end if;
+
+  if gC eq 6 then
+    gamma := GonalityForGenus6(C);
+  end if;
+
+  if gC eq 7 then
+    gamma := GonalityForGenus7(C); 
+  end if;
+  
+  gonality_cnt +:= 1;
+  s := Sprintf("%o, %o, %o\n",pt_cnt,4,pol);
+  Put(fp,s);
+end for;
+
+print "\n";
+for i in [1..max_genus+1] do
+  printf "Found %o curves of genus %o\n",num_curves[i],i-1;
+end for;
+printf "\nFound %o genus-%o curves satisfying all numeric criteria.\n", gonality_cnt, g;
+
+quit;
+

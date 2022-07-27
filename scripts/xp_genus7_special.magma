@@ -1,0 +1,161 @@
+/* -----------------------------------------------------------------------------
+
+This script can be called with
+
+  $ magma infile:=[filename] outfile:=[filename] xp_genus7_special.magma
+
+where "infile" contains the output from the genus7_plane_search C application.
+Each line of "infile" is an integer whose bit representation ends with two or
+three 1s: these are the coefficients of a polynomial F of degree 9 over GF(2)
+that has a particular cubic point, that does not vanish at any rational point,
+and such that there is no smooth point of degree dividing 4 or 5 on F = 0.
+
+This script searches for those that are irreducible of genus 7 and whose number
+of places of varying degrees is one of
+
+  [0, 0, 3, 0, 0, 13, 9],
+  [0, 0, 4, 0, 0, 9, 10],
+  [0, 0, 5, 0, 0, 9, 12].
+
+Upon finding any such curve, it computes the gonality and writes the curve to
+disk in "outfile", along with the point count and gonality. 
+
+----------------------------------------------------------------------------- */
+
+until_print := 2^15;      // polynomials to analyze before printing an update
+debug       := false;     // whether to print first 10 polynomial survivors
+
+// Fix annoying line breaks in Magma printing
+SetAutoColumns(false);
+SetColumns(0);
+
+/* -------------------------------------------------------------------------- */
+
+// Input: C = irreducible curve
+// Output:
+//   * (bool) whether C is a genus-7 curve with one of the correct point counts
+//   * (integer) the genus
+//   * (sequence of integers) the point counts [a_1, ..., a_7] if the genus is 7,
+//     otherwise []
+CheckGenusAndPoints := function(C)
+  gC := Genus(C);
+  if gC ne 7 then
+    return false, gC, [];
+  end if;
+
+  good_counts := [
+  	      [0, 0, 3, 0, 0, 13, 9],
+	      [0, 0, 4, 0, 0, 9, 10],
+	      [0, 0, 5, 0, 0, 9, 12]];
+  pts := [#Places(C,d) : d in [1..7]];
+  return (pts in good_counts), gC, pts;
+end function;
+
+/* -------------------------------------------------------------------------- */
+
+// Input: C = irreducible curve of genus 7 with point count [0, 0, *, 0, 0, *, *]
+// Output: gonality of C
+Gonality := function(C)
+
+  cubic_pts := Places(C,3);
+  
+  // Gonality 3 check
+  for P in cubic_pts do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then
+      return 3;
+    end if;
+  end for;
+
+  // Gonality 6 = 3+3 check
+  for i in [1..#cubic_pts] do
+    for j in [1..i] do
+      P := cubic_pts[i];
+      Q := cubic_pts[j];
+      D := Divisor(P) + Divisor(Q);
+      dim := Dimension(RiemannRochSpace(D));
+      if  dim gt 1 then return 6; end if;
+    end for;
+  end for;
+
+  // Irreducible gonality 6 check
+  for P in Places(C,6) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 6; end if;
+  end for;
+
+  // Gonality 7 check
+  for P in Places(C,7) do
+    D := Divisor(P);
+    dim := Dimension(RiemannRochSpace(D));
+    if  dim gt 1 then return 7; end if;
+  end for;
+
+  // Gonality is not less than 8, so it must be 8.
+  return 8;
+end function;
+
+/* -------------------------------------------------------------------------- */
+
+// Read survivors list
+survivors := StringToIntegerSequence(Read(infile));
+fp := Open(outfile,"w");
+g := 7;
+
+printf "\nSearching for curves of genus 7 and gonality 8 over GF(2)\n";
+printf "  with no quartic or quintic point\n\n";
+  
+R<x,y,z> := PolynomialRing(GF(2),3);
+P2 := ProjectiveSpace(R);
+printf "Searching %o polynomials\n",#survivors;
+
+// Set up the monomials in the same order as the C code
+d := 9;
+monomials := [x^d, y^d, z^d];
+monomials cat:= [x^(d-i) * y^i : i in [1..d-1]];
+monomials cat:= [x^(d-i) * z^i : i in [1..d-1]];
+monomials cat:= [y^(d-i) * z^i : i in [1..d-1]];
+for i in [1..d-2] do
+  monomials cat:= [x^i * y^j * z^(d-i-j) : j in [1..d-i-1]];
+end for;
+
+
+t := Cputime();
+max_genus := (d-1)*(d-2)/2;
+num_curves := [0 : i in [1..max_genus+1]]; // Count curves of each genus
+cnt := 0;
+gonality_cnt := 0;
+for pol_rep in survivors do
+  pol := R!0;
+  coefs := Intseq(pol_rep,2); // Intseq gives little endian bit sequence
+  for i in [1..#coefs] do
+    pol +:= coefs[i] * monomials[i];
+  end for;
+  cnt +:= 1;
+  if (debug and cnt le 10) then print pol; end if;  
+  if cnt mod until_print eq 0 then
+    printf "Tested %o polynomials in %om\n", cnt, Cputime(t)/60;
+  end if;
+  
+  if not IsIrreducible(pol) then continue; end if;
+  C := Curve(P2,pol);
+  maybe_xp, gC, pt_cnt := CheckGenusAndPoints(C); // Target special genus 7 isogeny classes  
+  num_curves[gC+1] +:= 1; // Store genus g in g+1 slot
+  if not maybe_xp then continue; end if;
+  
+  gamma := Gonality(C);
+  gonality_cnt +:= 1;
+  s := Sprintf("%o, %o, %o\n",pt_cnt,gamma,pol);
+  Put(fp,s);
+end for;
+
+print "\n";
+for i in [1..max_genus+1] do
+  printf "Found %o curves of genus %o\n",num_curves[i],i-1;
+end for;
+printf "\nFound %o genus-7 curves satisfying all numeric criteria.\n", gonality_cnt;
+
+quit;
+

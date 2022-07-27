@@ -1,0 +1,798 @@
+// PointlessQuartics.magma, version 1.0, 1 July 2022.
+
+/*
+The Magma programs in this file are associated with the paper
+
+             On the Maximum Gonality of a Curve over a Finite Field
+
+by Xander Faber, Jon Grantham, and Everett W. Howe
+
+The function 
+  pinned_quartics 
+takes as input a homogenous plane quartic over a finite field that defines a 
+genus-3 curve with no rational points. It then finds all pairs of quadratic 
+places whose underlying geometric points are in general position, and computes
+the models for the curve obtained by moving those two quadratic points to our
+favorite two quadratic points in the plane (and with the coefficient of z^4
+normalized to be 1). The function returns the list of all such models.
+
+The function 
+  normal_form
+takes as input quartic as above, calls pinned_quartics to find all of the quartic 
+models of the form described above, takes the models with the minimal number of
+nonzero coefficients, and returns the model that is first when Magma sorts the
+list.
+
+The function 
+  brute_force
+takes as input an arbitrary prime power q, and then returns a representative
+from each isomorphism class of pointless plane quartics over GF(q). This uses a
+naive algorithm.
+    
+The function
+  pointless_quartics
+takes as input an arbitrary prime power q, and then returns a representative
+from each isomorphism class of pointless plane quartics over GF(q). For q up
+to 5, this simply calls brute_force. For larger q, it uses a more efficient
+algorithm that depends on pointless plane quartics having two quadratic places
+whose underlying geometric points are in general position.
+
+At the bottom of the file, we include a (long) comment with the results obtained
+for the prime powers up to 16, together with some information about timing. For
+q = 17, 19, and 23, we used the same algorithm, but programmed in C.
+
+*/
+
+
+/*
+Version history:
+
+------------------------------------------------------------------------
+Version 0.9 --- 24 November 2021: 
+   Prerelease version.
+   
+Version 1.0 --- 1 July 2022:
+   First released version.
+   Renamed some functions to match the terminology of the paper.
+   Added a function for brute force searches for small q.
+   Revised and updated comments.
+
+*/
+
+function pinned_quartics(quartic)
+  // Given a homogenous plane quartic over a finite field that defines a genus-3
+  // curve with no rational points, find all pairs of quadratic places whose
+  // underlying geometric points are in general position, and compute the models
+  // obtained by moving those two quadratic points to our favorite two quadratic
+  // points in the plane. Return the big list of models.
+  // No assumptions are made about the characteristic of the base field.
+  
+  R<x,y,z>:=Parent(quartic);
+  K<r> := BaseRing(R);
+
+  q := #K;
+  p := Factorization(q)[1][1];
+  e := Factorization(q)[1][2];
+  
+  
+  // Construct our favorite irreducible quadratic over K, and give names to its
+  // roots in the quadratic extension of K
+  W<w>:=PolynomialRing(K);
+
+  case [p mod 2, e mod 2]:
+    when [0,0]:
+      // An even-degree extension of F_2. Look for powers of r with trace 1.
+      t1 := K!1;
+      repeat t1*:=r; until Trace(t1,GF(2)) eq 1;
+      irred2 := w^2 + w + t1;
+    when [0,1]:
+      // An odd-degree extension of F_2.
+      irred2 := w^2 + w + 1;
+    when [1,0]:
+      // Even degree extension of odd field. Magma's generator r is not a square.
+      irred2 := w^2 - r;
+    when [1,1]:
+      // Odd degree extension of odd field. Find a nonsquare in the prime field.
+      ns := K!0;
+      repeat ns+:=1; until not IsSquare(ns);
+      irred2 := w^2 - ns;
+  end case;
+  
+  assert IsIrreducible(irred2);
+  
+  L<s1>:=ext<K | irred2>;
+  s2 := -Coefficient(irred2,1) - s1;
+  assert Evaluate(irred2,s2) eq 0;
+  
+  // So s1 and s2 are the two roots of our favorite irreducible quadratic.
+  
+  S<t>:=PolynomialRing(L);
+  quadpoints := [];
+
+  for u in L do
+    ff := Evaluate(quartic,[u,t,1]);
+    for vv in Roots(ff) do
+      v := vv[1];
+      if u^q ne u or v^q ne v then quadpoints cat:= [[u,v,1]]; end if;
+    end for;
+  end for;
+
+  ff := Evaluate(quartic,[t,1,0]);
+  for vv in Roots(ff) do
+    v := vv[1];
+    if v^q ne v then quadpoints cat:= [[v,1,0]]; end if;
+  end for;
+
+  // Compute a matrix that sends [1:0:0] to [s1:0:1], [0:1:0] to [s2:0:1],
+  // [0:0:1] to [0:s1:1], and [1:1:1] to [0:s2:1]. (The image points give our
+  // favorite pair of degree-2 points in the plane.)
+
+  case p mod 2:
+    when 1: 
+      assert s2 eq -s1;
+      N := Matrix(3,[s1,s2,0,0,0,s2,1,1,-1]);
+    when 0:
+      assert s1 + s2 eq 1;
+      n := s1*s2;
+      N := Matrix(3,[n, n, 0, 0, 0, n, s2, s1, s2]);
+  end case;
+
+  formlist := [];
+  
+  for P, Q in quadpoints do
+    Pbar := [a^q : a in P];
+    Qbar := [a^q : a in Q];
+    M1 := Matrix(3,P cat Pbar cat Q);
+    M2 := Matrix(3,P cat Pbar cat Qbar);
+    M3 := Matrix(3,Q cat Qbar cat P);
+    M4 := Matrix(3,Q cat Qbar cat Pbar);
+    
+    if Determinant(M1) ne 0 and Determinant(M2) ne 0 and
+       Determinant(M3) ne 0 and Determinant(M4) ne 0 then
+      
+      // Compute a matrix that sends [1:0:0] to P, [0:1:0] to Pbar,
+      // [0:0:1] to Q, and [1:1:] to Qbar.
+      
+      V := Matrix(3,1,Qbar);
+      abc := Transpose(M1)^-1 * V;
+      M := Transpose(Matrix(3,[abc[1,1]*p : p in P] cat [abc[2,1]*p : p in Pbar] cat [abc[3,1]*p : p in Q]));
+
+      both := M*N^-1;
+      
+      // The matrix "both" sends our favorite two quadratic points in the plane
+      // to the quadratic points containing P and Q, respectively.
+      
+      sc := [a : a in Eltseq(both) | a ne 0][1];
+      elts := [K!(a/sc) : a in Eltseq(both)];
+      g := Evaluate(quartic,[elts[1]*x + elts[2]*y + elts[3]*z,
+                             elts[4]*x + elts[5]*y + elts[6]*z,
+                             elts[7]*x + elts[8]*y + elts[9]*z]);
+                             
+      // The quartic g defines a curve isomorphic to the curve given by our
+      // initial quartic, but now the curve passes through our favorite two
+      // degree-2 places. But we can check to be sure.
+      
+      assert Evaluate(g,[s1,0,1]) eq 0;                       
+      assert Evaluate(g,[s2,0,1]) eq 0;                       
+      assert Evaluate(g,[0,s1,1]) eq 0;                       
+      assert Evaluate(g,[0,s2,1]) eq 0;   
+      
+      sc := MonomialCoefficient(g,z^4);
+      g := g / sc;
+      formlist cat:= [g];
+    end if;
+  end for;
+  
+  return formlist;
+end function;
+
+
+
+function normal_form(f);
+  // Of all the forms computed for f by the function pinned_quartics, consider 
+  // the ones that involve the fewest monomials, and (if this list is nonempty)
+  // return the one that Magma puts first in a sorted list (the "first pinned
+  // quartic" form of f).
+  //
+  // If the list of pinned quartics is empty, then the base field is small, and
+  // we can instead compute all quartic models, and return the one with the 
+  // minimal number of nonzero coefficients that is first in an ordered list.
+  
+  flist := pinned_quartics(f);
+  if #flist eq 0 then
+    R := Parent(f);
+    K := BaseRing(R);
+    x := R.1;
+    y := R.2;
+    z := R.3;
+    flist := [];
+    for a1,a2,a3,b1,b2,b3,c1,c2,c3 in K do
+      if (c3 eq 1) or (c3 eq 0 and c2 eq 1) or (c3 eq 0 and c2 eq 0 and c1 eq 1) then
+        if Determinant(Matrix(3,[a1,a2,a3,b1,b2,b3,c1,c2,c3])) ne 0 then
+          g := Evaluate(f,[a1*x+a2*y+a3*z, b1*x+b2*y+b3*z, c1*x+c2*y+c3*z]);
+          g := g / MonomialCoefficient(g,z^4);
+          flist cat:= [g];
+        end if;
+      end if;
+    end for;
+  end if;
+  n := Min([#Monomials(g) : g in flist]);
+  goodf := [g : g in flist | #Monomials(g) eq n];
+  Sort(~goodf);
+  return goodf[1];
+end function;
+
+
+
+function brute_force(q)
+  // For q > 5, naive estimates show that a pointless plane quartic over F_q
+  // will have two non-colinear places of degree 2, and so for such q we have
+  // an efficient search algorithm for pointless plane quartics. For the smaller
+  // values of q, we instead rely on a brute force search. This function 
+  // executes such a search.
+  //
+  // Note: Less-naive estimates show that our efficient algorithm will in fact
+  // work for q = 5, but rather than working through these better estimates in
+  // the paper, we simply run our brute force search. It takes more time, but
+  // less explanation.
+  
+  K<r>:=GF(q);
+  Kstar := [a : a in K | a ne 0];
+
+  P2<x,y,z>:=ProjectivePlane(K);
+  R<t>:=PolynomialRing(K);
+
+  // Find the quartics in x and y with no roots, up to PSL(2,q).
+  // shorlist contains the PSL(2,q) representatives.
+  // longlist contains all such quartics.
+  shortlist := [];
+  longlist := {};
+
+  for a,b,c in K, d in Kstar do
+    f := x^4 + a*x^3*y + b*x^2*y^2 + c*x*y^3 + d*y^4;
+    if not f in longlist and #Roots(Evaluate(f,[t,1,0])) eq 0 then
+      shortlist cat:= [f];
+      longlist join:= {v*Evaluate(f,[r*x+s*y,t*x+u*y,0]) : r,s,t,u in K, v in Kstar | r*u-s*t ne 0};
+    end if;
+  end for;
+
+  // longlistprime contains all quartics in x and y with no roots and with
+  // the coefficient of x^4 equal to 1.
+  longlistprime := [f : f in longlist | MonomialCoefficient(f,x^4) eq 1];
+
+  quartics := [];
+
+  for xypart in shortlist do
+    // xypart determines the coefficients of x^4, x^3*y, x^2*y^2, x*y^3, and y^4.
+    // We can run through shortlist and not longlist because we may assume that 
+    // our quartic has been modified by PSL(2,q) so that its x-y part is on 
+    // shortlist.
+    y4coeff := MonomialCoefficient(xypart,y^4);
+    for xzpart in longlistprime do 
+      // xzpart determines the coefficients of x^3*z, x^2*z^2, x*z^3, and z^4.
+      // But note that xzpart is still a polynomial in x and y --- we will have
+      // to evaluate it at x and z in order to put it into our final quartic.
+      z4coeff := MonomialCoefficient(xzpart,y^4);
+      for yzpart in longlist do
+        if MonomialCoefficient(yzpart,x^4) eq y4coeff and MonomialCoefficient(yzpart,y^4) eq z4coeff then
+          // yzpart determines ths coefficients of y^3*z, y^2*z^2, y*z^3.
+          for a211, a121, a112 in K do
+            // These variables provide the coefficients of x^2*y*z, x*y^2*z, and x*y*z^2.
+            f := xypart + Evaluate(xzpart,[x,z,0]) - x^4
+                        + Evaluate(yzpart,[y,z,0]) - y4coeff*y^4 - z4coeff*z^4
+                        + a211*x^2*y*z + a121*x*y^2*z + a112*x*y*z^2;
+            // The subtractions account for duplicated coefficients.
+            
+            // Check: Do we have a pointless quartic?
+            pointless := true;
+            for u,v,w in Kstar do
+              if Evaluate(f,[u,v,w]) eq 0 then
+                pointless := false;
+                break u;
+              end if;
+            end for;
+            if pointless then
+              // Does the quartic define an irreducible curve of genus 3?
+              if IsIrreducible(f) then
+                C := Curve(P2,f);
+                if Genus(C) eq 3 then
+                  quartics cat:= [f];
+                end if;
+              end if;
+            end if;
+          end for;
+        end if;
+      end for;
+    end for;
+  end for;
+
+  // At this point, quartics contains a list of all pointless plane quartics
+  // that define irreducible curves. But there may be duplicates. 
+  
+  // To eliminate duplicates, we use the normal form defined above. In theory,
+  // this might be very inefficient, because for each curve that does not have
+  // two non-colinear places of degree 2, we have to run through the entire
+  // PGL(3,F_q) orbit of the quartic. However, in point of fact, for q > 3 
+  // every pointless quartic *does* have two non-colinear places of degree 2, 
+  // so the normal form calculation is reasonably efficient.
+
+  quarticreps := {};
+  count := 0;
+  for f in quartics do 
+    quarticreps join:= {normal_form(f)};
+    // If you would like to track progress, uncomment the following line:
+     count+:=1; print count, #quartics, #quarticreps;
+  end for;
+  
+  return Sort([f : f in quarticreps]);
+end function;
+
+
+
+function pointless_quartics(q : processes:=1, number:=0);
+
+  // Given a prime power q, we find all pointless plane quartics (up to
+  // isomorphism) over the finite field GF(q).
+  //
+  // The optional variables "processes" and "number" are present in order to
+  // allow for splitting the computation up among several processes. 
+  // "processes" should be an integer at least 1. 
+  // "number" should be an integer from 0 to processes - 1.
+  //
+  // For q up to 5, we simply call brute_force(q). For larger q, one can
+  // show using the Weil-Serre bound that a pointless plane quartic over GF(q)
+  // must have at least 3 places of degree 2, and (at least) one pair of these
+  // must be in general position. By applying an element of PGL(3,GF(q)), we can
+  // move these two degree-2 places to our favorite pair of degree-2 places 
+  // in the plane that are in general position. To be specific, our first 
+  // favorite quadratic place is {[s1:0:1],[s2:0:1]} for two conjugate elements
+  // s1 and s2 of the quadratic extension of GF(q), and our second favorite 
+  // quadratic place is {[0:s1:1],[0:s2:1]}.
+  //
+  // We scale our quartics so that the coefficient of the monomial z^4 is
+  // equal to 1. Then the fact that our curve passes through the given 
+  // quadratic points gives a restriction on the sets of coefficients 
+  // {x^4, x^3*z, x^2*z^2, x*z^3} and {y^4, y^3*z, y^2*z^2, y*z^3}. We loop
+  // over all possibilities, making sure that the curve does not pass through
+  // any of the rational points on the line between [1:0:0] and [0:0:1] and
+  // between [0:1:0] and [0:0:1]. Then we loop over possibilities for the
+  // coefficients of {x^3*y, x^2*y^2, x*y^3}, making sure that the curve does
+  // not pass through any rational points on the line between [1:0:0] and
+  // [0:1:0]. Then we loop through the possible coefficients for 
+  // {x^2*y*z, x*y^2*z, x*y*z^2}, and check that the resulting curve does not
+  // pass through any rational points of the form [a:b:c] for a,b,c all nonzero.
+  // 
+  // One we have a curve, we check to see whether it has genus 3. BUT: we can
+  // avoid this test if the curve actually does have genus 3 and we have 
+  // already seen a different model for it: Every time we find a pointless
+  // genus-3 curve, we compute all of its models using the function 
+  // pinned_quartics, and we keep a running list of all of these forms. We don't
+  // bother computing the genus of the curve if we have already seen a different
+  // model.
+  //
+  // This has the added advantage of ensuring that the list of pointless 
+  // quartics we produce consists of mutually non-isomorphic curves.
+
+  if q le 5 then
+    return brute_force(q);
+  end if;
+  
+  p := Factorization(q)[1][1];
+  e := Factorization(q)[1][2];
+  K<r>:=GF(q);
+
+  W<w>:=PolynomialRing(K);
+
+
+  // Compute our favorite irreducible quadratic.
+  
+  case [p mod 2, e mod 2]:
+    when [0,0]:
+      // An even-degree extension of F_2. Look for powers of r with trace 1.
+      t1 := K!1;
+      repeat t1*:=r; until Trace(t1,GF(2)) eq 1;
+      irred2 := w^2 + w + t1;
+    when [0,1]:
+      // An odd-degree extension of F_2.
+      irred2 := w^2 + w + 1;
+    when [1,0]:
+      // Even degree extension of odd field. Generator r is not a square.
+      irred2 := w^2 - r;
+    when [1,1]:
+      // Odd degree extension of odd field. Find a nonsquare in prime field.
+      ns := K!0;
+      repeat ns+:=1; until not IsSquare(ns);
+      irred2 := w^2 - ns;
+  end case;
+  
+  assert IsIrreducible(irred2);
+
+  Kstar := [a : a in K | a ne 0];
+
+  P2<x,y,z>:=ProjectivePlane(K);
+  monomials := [x^e[1] * y^e[2] * z^(4-e[1]-e[2]) : e in [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,1],[1,2],[1,3],[2,0],[2,1],[2,2],[3,0],[3,1],[4,0]] ];
+
+  // Compute the coefficients of bivariate quartic polynomials in x and z   
+  // such that z^4 has coefficient 1 and such that the quartic factors
+  // as our favorite quadratic irreducible times another (possibly equal)
+  // quadratic irreducible.
+
+  sidelist := [];
+  
+  c0 := Coefficient(irred2,0);
+  
+  for b0 in Kstar, b1 in K do
+    if IsIrreducible(w^2 + b1*w + b0) then
+      sidelist cat:= [ Coefficients(Reverse((w^2 + b1*w + b0) * irred2/b0/c0))];
+    end if;
+  end for;
+
+  test2 := [ Vector([1, a, a^2, a^3, a^4]) : a in Kstar];
+  test3 := [ Vector([a^e[1] * b^e[2] : e in [[0,0],[0,1],[0,2],[0,3],[0,4],[1,0],[1,1],[1,2],[1,3],[2,0],[2,1],[2,2],[3,0],[3,1],[4,0]] ]): a,b in Kstar];
+
+  goodquartics := [];
+  count := 0;
+  taken := [];
+
+  time
+  for xz, yz in sidelist do
+    // We also can cut down our search by the x <--> y symmetry in our conditions.
+    if xz eq Sort([xz,yz])[1] then
+      count +:= 1; 
+      if number eq count mod processes then
+        print count, #sidelist*(#sidelist+1)/2;
+        a400, a301, a202, a103, a004 := Explode(xz);
+        a040, a031, a022, a013, a004 := Explode(yz);
+        for a310, a220, a130 in K do
+          u := Vector([a400,a310,a220,a130,a040]);
+
+          // Abort this path if our equation so far is satisfied by a rational 
+          // point on the line between [1:0:0] and [0:1:0], i.e. the line z = 0.
+          for v in test2 do
+            if InnerProduct(u,v) eq 0 then continue a130; end if;
+          end for;
+
+          for a211, a121, a112 in K do
+            u := Vector([a004,a013,a022,a031,a040,a103,a112,a121,a130,a202,a211,a220,a301,a310,a400]);
+            // Abort this path if our equation is satisfied by a rational point 
+            // [a:b:c] with a, b, c all nonzero.
+            for v in test3 do
+              if InnerProduct(u,v) eq 0 then continue a112; end if;
+            end for;
+            f := &+[monomials[i]*u[i] : i in [1..#monomials]];
+
+            // If we've seen a version of this curve before, we can abort this path.
+            if not f in taken then
+              C := Curve(P2,f);
+              if Genus(C) eq 3 then
+                assert #Places(C,1) eq 0;
+                goodquartics cat:= [normal_form(f)];
+                taken cat:= pinned_quartics(f);
+              end if;
+            end if;
+          end for;
+        end for;
+      end if;
+    end if;
+  end for;
+  
+  return Sort(goodquartics);
+end function;
+
+
+
+/* 
+TIMINGS:
+We ran these programs on a 3.2 GHz Apple M1 Max.
+We used Magma 2.26-10 compiled for Intel, running under Rosetta 2 emulation.
+
+
+
+(First four rows are using naive brute force algorithm.)
+
+
+  q         #sec   log_2 q   log_2(#sec) 
+
+  2         0.26    1.00       -1.94
+  3        85.06    1.58        6.41
+  4       598.55    2.00        9.23
+  5      8679.68    2.32       13.08
+
+  7       368.48    2.81        7.60
+  8       782.48    3.00        9.61
+  9      1532.65    3.17       10.58
+ 11      9594.60    3.46       13.23
+ 13     36693.78    3.70       15.16
+ 16    321947.28    4.00       18.30
+ 
+ 
+Best fit for last 6 data points: log time = 8.3227 * log q - 15.6493
+Best fit for last 3 data points: log time = 9.4330 * log q - 19.5277
+(In theory, we would expect the slope to be 11.)
+
+
+
+RESULTS:
+
+q := 2 --- 4 quartics  Time: 0.260 (brute force)
+
+[
+    x^4 + x*y^3 + y^4 + x*y*z^2 + x*z^3 + y*z^3 + z^4,
+    x^4 + x*y^3 + y^4 + x^2*y*z + x^2*z^2 + y^2*z^2 + z^4,
+    x^4 + x*y^3 + y^4 + x^3*z + x*y*z^2 + y*z^3 + z^4,
+    x^4 + x^2*y^2 + y^4 + x^2*y*z + x*y^2*z + x^2*z^2 + x*y*z^2 + y^2*z^2 + z^4
+]
+
+
+
+
+q := 3 --- 8 quartics  Time: 85.060 (brute force)
+
+[
+    x^4 + x*y^3 + 2*y^4 + x^2*y*z + y^3*z + 2*x^2*z^2 + x*y*z^2 + y*z^3 + z^4,
+    x^4 + x*y^3 + 2*y^4 + x^2*y*z + x*y^2*z + y^3*z + 2*x^2*z^2 + 2*x*y*z^2 + y*z^3 + z^4,
+    x^4 + x^2*y^2 + 2*y^4 + x^2*y*z + 2*x^2*z^2 + 2*y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + x*y^3 + y^4 + 2*x^2*z^2 + 2*x*y*z^2 + 2*y^2*z^2 + z^4,
+    x^4 + 2*x^2*y^2 + 2*y^4 + x*y^2*z + y^3*z + 2*x^2*z^2 + 2*x*y*z^2 + y*z^3 + z^4,
+    x^4 + x^3*y + 2*x*y^3 + y^4 + 2*x^2*z^2 + 2*y^2*z^2 + z^4,
+    x^4 + x^3*y + 2*x^2*y^2 + 2*x*y^3 + 2*y^4 + x*y^2*z + y^3*z + 2*x^2*z^2 + 2*x*y*z^2 + y*z^3 + z^4,
+    x^4 + x^3*y + 2*x^2*y^2 + 2*x*y^3 + 2*y^4 + x^2*y*z + y^3*z + 2*x^2*z^2 + y*z^3 + z^4
+]
+
+
+
+
+q := 4 --- 21 quartics  Time: 598.550 (brute force)
+r^2 + r + 1 = 0
+
+[
+    x^4 + x*y^3 + y^4 + x^2*y*z + r*x*y^2*z + x*y*z^2 + x*z^3 + y*z^3 + z^4,
+    x^4 + x*y^3 + y^4 + x^2*y*z + r^2*x*y^2*z + x*y*z^2 + x*z^3 + y*z^3 + z^4,
+    x^4 + x*y^3 + r*y^4 + r*x^2*y*z + r*y^2*z^2 + x*z^3 + z^4,
+    x^4 + x*y^3 + r*y^4 + r^2*x^2*y*z + r*x*y^2*z + r*x*y*z^2 + r*y^2*z^2 + x*z^3 + z^4,
+    x^4 + x^2*y^2 + r*y^4 + r^2*x^2*y*z + x*y^2*z + r^2*x*y*z^2 + r*y^2*z^2 + x*z^3 + z^4,
+    x^4 + r*x^2*y^2 + r*x*y^3 + r^2*y^4 + y^3*z + x*z^3 + z^4,
+    x^4 + r*x^2*y^2 + r^2*x*y^3 + r^2*y^4 + y^3*z + x*z^3 + z^4,
+    x^4 + r^2*x^2*y^2 + r*x*y^3 + y^4 + r*x^3*z + r*x*y^2*z + r*x^2*z^2 + r*x*z^3 + y*z^3 + z^4,
+    x^4 + x^3*y + x*y^3 + r^2*y^4 + x^2*y*z + r*x*y^2*z + y^3*z + x*y*z^2 + x*z^3 + z^4,
+    x^4 + x^3*y + x^2*y^2 + r*y^4 + r*x^2*y*z + r*y^2*z^2 + x*z^3 + z^4,
+    x^4 + x^3*y + r^2*x^2*y^2 + r*y^4 + x^2*y*z + r*y^2*z^2 + x*z^3 + z^4,
+    x^4 + r*x^3*y + r*x*y^3 + r*y^4 + r^2*x^2*y*z + r^2*x*y^2*z + r*y^2*z^2 + x*z^3 + z^4,
+    x^4 + r^2*x^3*y + r^2*y^4 + y^3*z + r^2*x*y*z^2 + x*z^3 + z^4,
+    x^4 + r^2*x^3*y + x*y^3 + r*y^4 + x^2*y*z + r*y^2*z^2 + x*z^3 + z^4,
+    x^4 + r^2*x^3*y + r*x*y^3 + r^2*y^4 + y^3*z + x*z^3 + z^4,
+    x^4 + r^2*x^3*y + r^2*x*y^3 + r^2*y^4 + y^3*z + x*z^3 + z^4,
+    r*x^4 + x^2*y^2 + r^2*x*y^3 + r*y^4 + x^2*y*z + r*x^2*z^2 + r*y^2*z^2 + z^4,
+    r*x^4 + r*x^3*y + r*x*y^3 + r^2*y^4 + r*x*y^2*z + y^3*z + r*x^2*z^2 + z^4,
+    r^2*x^4 + x^2*y^2 + r^2*y^4 + x^3*z + y^3*z + r*x*y*z^2 + z^4,
+    r^2*x^4 + r^2*x^2*y^2 + x*y^3 + r^2*y^4 + x^3*z + y^3*z + x*y*z^2 + z^4,
+    r^2*x^4 + r^2*x^2*y^2 + r*x*y^3 + r^2*y^4 + x^3*z + y^3*z + r^2*x*y*z^2 + z^4
+]
+
+
+
+
+q := 5  ---  31 quartics  Time: 8679.680 (brute force)
+[
+    x^4 + y^4 + z^4,
+    x^4 + x*y^3 + 4*y^4 + x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x*y^3 + 4*y^4 + x^2*y*z + 4*x*y^2*z + 3*y^3*z + 4*x*y*z^2 + 4*y^2*z^2 + 4*y*z^3 + z^4,
+    x^4 + x*y^3 + 4*y^4 + x^3*z + x^2*y*z + x*y^2*z + x*y*z^2 + 4*y^2*z^2 + 3*x*z^3 + z^4,
+    x^4 + x*y^3 + 4*y^4 + x^3*z + 3*x^2*y*z + 2*y^3*z + 4*y^2*z^2 + 3*x*z^3 + y*z^3 + z^4,
+    x^4 + 2*x*y^3 + 4*y^4 + x^3*z + 4*x^2*y*z + 4*x*y^2*z + 3*x*y*z^2 + 4*y^2*z^2 + 3*x*z^3 + z^4,
+    x^4 + x^2*y^2 + y^4 + z^4,
+    x^4 + x^2*y^2 + y^4 + 2*x*y*z^2 + z^4,
+    x^4 + x^2*y^2 + y^4 + x^2*y*z + x*y^2*z + y^3*z + x*y*z^2 + 3*y*z^3 + z^4,
+    x^4 + x^2*y^2 + 4*y^4 + 2*x*y^2*z + 2*y^3*z + x*y*z^2 + 4*y^2*z^2 + y*z^3 + z^4,
+    x^4 + x^2*y^2 + 4*y^4 + 2*x^2*y*z + x*y^2*z + 3*y^3*z + 4*y^2*z^2 + 4*y*z^3 + z^4,
+    x^4 + x^2*y^2 + x*y^3 + y^4 + 2*x*y^2*z + y^3*z + 3*x*y*z^2 + 3*y*z^3 + z^4,
+    x^4 + 2*x^2*y^2 + 3*y^4 + x^2*y*z + y^3*z + y^2*z^2 + 3*y*z^3 + z^4,
+    x^4 + 2*x^2*y^2 + 2*x*y^3 + y^4 + y^3*z + 3*y*z^3 + z^4,
+    x^4 + 2*x^2*y^2 + 2*x*y^3 + y^4 + x*y^2*z + 4*y^3*z + 2*x*y*z^2 + 2*y*z^3 + z^4,
+    x^4 + x^3*y + 4*y^4 + 2*x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x^3*y + 4*y^4 + x*y^2*z + 4*x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x^3*y + 4*y^4 + x^2*y*z + 3*x*y^2*z + 4*x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x^3*y + 4*y^4 + 2*x^2*y*z + 3*y^3*z + 4*x*y*z^2 + 4*y^2*z^2 + 4*y*z^3 + z^4,
+    x^4 + x^3*y + 2*x*y^3 + 4*y^4 + 3*x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x^3*y + 4*x*y^3 + y^4 + z^4,
+    x^4 + x^3*y + x^2*y^2 + x*y^3 + 4*y^4 + x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x^3*y + 2*x^2*y^2 + 2*x*y^3 + y^4 + x*y^2*z + 4*x*y*z^2 + z^4,
+    x^4 + x^3*y + 3*x^2*y^2 + 4*x*y^3 + 4*y^4 + 4*x*y*z^2 + 4*y^2*z^2 + z^4,
+    3*x^4 + 4*y^4 + x^3*z + 3*x*y^2*z + 2*y^3*z + x^2*z^2 + 4*y^2*z^2 + 3*x*z^3 + y*z^3 + z^4,
+    4*x^4 + 2*x^2*y^2 + x*y^3 + 4*y^4 + 4*x^2*z^2 + x*y*z^2 + 4*y^2*z^2 + z^4,
+    4*x^4 + 4*x^2*y^2 + x*y^3 + 4*y^4 + 4*x^2*z^2 + 2*x*y*z^2 + 4*y^2*z^2 + z^4,
+    4*x^4 + x^3*y + 2*x^2*y^2 + 2*x*y^3 + 4*y^4 + 4*x^2*z^2 + 4*x*y*z^2 + 4*y^2*z^2 + z^4,
+    4*x^4 + x^3*y + 2*x^2*y^2 + 2*x*y^3 + 4*y^4 + x^2*y*z + 3*x*y^2*z + 4*x^2*z^2 + 4*y^2*z^2 + z^4,
+    4*x^4 + x^3*y + 3*x^2*y^2 + 2*x*y^3 + 4*y^4 + 4*x^2*z^2 + 4*y^2*z^2 + z^4,
+    4*x^4 + 2*x^3*y + 4*x^2*y^2 + 3*x*y^3 + 4*y^4 + 4*x^2*z^2 + 2*x*y*z^2 + 4*y^2*z^2 + z^4
+]
+
+
+
+
+q := 7 --- 32 quartics  Time: 368.480
+[
+    x^4 + y^4 + 6*x^2*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + y^4 + 3*x^2*y*z + x*y^2*z + 2*y^3*z + 6*x^2*z^2 + 5*x*y*z^2 + 6*y^2*z^2 + y*z^3 + z^4,
+    x^4 + 2*y^4 + 2*x^2*y*z + y^3*z + 6*x^2*z^2 + 3*y^2*z^2 + 4*y*z^3 + z^4,
+    x^4 + 2*y^4 + 2*x^3*z + 2*x^2*y*z + y^3*z + 6*x^2*z^2 + 6*x*y*z^2 + 3*y^2*z^2 + x*z^3 + 4*y*z^3 + z^4,
+    x^4 + 4*y^4 + 2*x*y^2*z + 3*y^3*z + 6*x^2*z^2 + 4*y^2*z^2 + 5*y*z^3 + z^4,
+    x^4 + x*y^3 + y^4 + 6*x^2*z^2 + x*y*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + x*y^3 + 2*y^4 + 6*x^2*z^2 + x*y*z^2 + 3*y^2*z^2 + z^4,
+    x^4 + 3*x^2*y^2 + y^4 + 6*x^2*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + 3*x^2*y^2 + 2*x*y^3 + 2*y^4 + x^2*y*z + 6*x^2*z^2 + 5*x*y*z^2 + 3*y^2*z^2 + z^4,
+    x^4 + 3*x^2*y^2 + 2*x*y^3 + 2*y^4 + x^2*y*z + 2*x*y^2*z + 6*x^2*z^2 + 2*x*y*z^2 + 3*y^2*z^2 + z^4,
+    x^4 + 5*x^2*y^2 + 2*x*y^3 + 4*y^4 + 6*x^2*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + 5*x^2*y^2 + 3*x*y^3 + y^4 + 6*x^2*z^2 + 4*x*y*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + 5*x^2*y^2 + 3*x*y^3 + y^4 + 2*x^2*y*z + x*y^2*z + 6*x^2*z^2 + 5*x*y*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + x^3*y + 3*y^4 + x^2*y*z + x*y^2*z + 4*y^3*z + 6*x^2*z^2 + 5*x*y*z^2 + 2*y*z^3 + z^4,
+    x^4 + x^3*y + 2*x^2*y^2 + 6*x*y^3 + y^4 + 6*x^2*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + x^3*y + 3*x^2*y^2 + 5*x*y^3 + y^4 + 6*x^2*z^2 + x*y*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + x^3*y + 4*x^2*y^2 + 3*x*y^3 + 4*y^4 + 6*x^2*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x^3*y + 6*x^2*y^2 + x*y^3 + 4*y^4 + 6*x^2*z^2 + 5*x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + x^3*y + 6*x^2*y^2 + 5*x*y^3 + 2*y^4 + 6*x^2*z^2 + 3*y^2*z^2 + z^4,
+    x^4 + 2*x^3*y + 5*x*y^3 + y^4 + 6*x^2*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + 2*x^3*y + x^2*y^2 + 5*x*y^3 + y^4 + 6*x^2*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + 2*x^3*y + 2*x^2*y^2 + x*y^3 + 4*y^4 + 6*x^2*z^2 + 3*x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + 2*x^3*y + 4*x^2*y^2 + 3*y^4 + 3*x*y^2*z + y^3*z + 6*x^2*z^2 + 4*y*z^3 + z^4,
+    x^4 + 2*x^3*y + 5*x^2*y^2 + 2*x*y^3 + y^4 + 6*x^2*z^2 + 6*y^2*z^2 + z^4,
+    x^4 + 3*x^3*y + 4*y^4 + 6*x^2*z^2 + x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + 3*x^3*y + 4*x*y^3 + 4*y^4 + 6*x^2*z^2 + x*y*z^2 + 4*y^2*z^2 + z^4,
+    x^4 + 3*x^3*y + 6*x^2*y^2 + 4*x*y^3 + 4*y^4 + 3*x^2*y*z + 6*x^2*z^2 + 4*y^2*z^2 + z^4,
+    3*x^4 + x*y^3 + 4*y^4 + 3*x^3*z + 2*x^2*y*z + 4*y^2*z^2 + 5*x*z^3 + z^4,
+    3*x^4 + 3*x^2*y^2 + x*y^3 + 4*y^4 + 3*x^3*z + 3*x^2*y*z + 4*y^2*z^2 + 5*x*z^3 + z^4,
+    4*x^4 + 3*x*y^3 + 4*y^4 + 4*x^2*z^2 + 6*x*y*z^2 + 4*y^2*z^2 + z^4,
+    4*x^4 + x^3*y + 6*x^2*y^2 + 3*x*y^3 + 4*y^4 + 4*x^2*z^2 + 4*y^2*z^2 + z^4,
+    4*x^4 + 2*x^3*y + 4*x^2*y^2 + 4*x*y^3 + 4*y^4 + 4*x^2*z^2 + 4*y^2*z^2 + z^4
+]
+
+
+
+
+q := 8 --- 39 quartics  Time: 782.480
+r^3 + r + 1 = 0
+[
+    x^4 + r*x*y^3 + r^4*y^4 + r^3*y^3*z + x^2*z^2 + r^5*x*y*z^2 + r*y^2*z^2 + r^2*y*z^3 + z^4,
+    x^4 + r*x*y^3 + r^4*y^4 + r^6*y^3*z + x^2*z^2 + r^5*x*y*z^2 + r^2*y^2*z^2 + r*y*z^3 + z^4,
+    x^4 + r^2*x*y^3 + r*y^4 + r^5*y^3*z + x^2*z^2 + r^3*x*y*z^2 + r^4*y^2*z^2 + r^2*y*z^3 + z^4,
+    x^4 + r^3*x*y^3 + y^4 + r^6*x^2*y*z + r^6*x*y^2*z + x^2*z^2 + r^6*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + r^3*x*y^3 + r^4*y^4 + r^2*x^2*y*z + r^3*x*y^2*z + x^2*z^2 + x*y*z^2 + y^2*z^2 + r^5*y*z^3 + z^4,
+    x^4 + r^5*x*y^3 + y^4 + r^3*x^2*y*z + r^3*x*y^2*z + x^2*z^2 + r^3*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + r^5*x*y^3 + r^2*y^4 + r*x^2*y*z + r^5*x*y^2*z + x^2*z^2 + x*y*z^2 + y^2*z^2 + r^6*y*z^3 + z^4,
+    x^4 + r^6*x*y^3 + y^4 + r^5*x^2*y*z + r^5*x*y^2*z + x^2*z^2 + r^5*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + r^6*x*y^3 + r*y^4 + r^4*x^2*y*z + r^6*x*y^2*z + x^2*z^2 + x*y*z^2 + y^2*z^2 + r^3*y*z^3 + z^4,
+    x^4 + x^2*y^2 + y^4 + r*x^2*y*z + r*x*y^2*z + x^2*z^2 + r*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + y^4 + r^2*x^2*y*z + r^2*x*y^2*z + x^2*z^2 + r^2*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + y^4 + r^4*x^2*y*z + r^4*x*y^2*z + x^2*z^2 + r^4*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + r^3*y^4 + x^2*y*z + x*y^2*z + r*y^3*z + x^2*z^2 + x*y*z^2 + r^3*y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + r^5*y^4 + x^2*y*z + x*y^2*z + r^4*y^3*z + x^2*z^2 + x*y*z^2 + r^5*y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + r^6*y^4 + x^2*y*z + x*y^2*z + r^2*y^3*z + x^2*z^2 + x*y*z^2 + r^6*y^2*z^2 + z^4,
+    x^4 + r^3*x^2*y^2 + x*y^3 + y^4 + r^3*x^3*z + r^3*x^2*y*z + r*x^2*z^2 + y^2*z^2 + r^3*x*z^3 + z^4,
+    x^4 + r^5*x^2*y^2 + x*y^3 + y^4 + r^5*x^3*z + r^5*x^2*y*z + r^4*x^2*z^2 + y^2*z^2 + r^5*x*z^3 + z^4,
+    x^4 + r^6*x^2*y^2 + x*y^3 + y^4 + r^6*x^3*z + r^6*x^2*y*z + r^2*x^2*z^2 + y^2*z^2 + r^6*x*z^3 + z^4,
+    x^4 + r*x^3*y + r^5*y^4 + x^2*y*z + x*y^2*z + r^4*y^3*z + x^2*z^2 + x*y*z^2 + r^5*y^2*z^2 + z^4,
+    x^4 + r*x^3*y + r^6*y^4 + r^5*x^2*y*z + r^3*x*y^2*z + r^2*y^3*z + x^2*z^2 + r^5*x*y*z^2 + r^6*y^2*z^2 + z^4,
+    x^4 + r^2*x^3*y + r^3*y^4 + x^2*y*z + x*y^2*z + r*y^3*z + x^2*z^2 + x*y*z^2 + r^3*y^2*z^2 + z^4,
+    x^4 + r^2*x^3*y + r^5*y^4 + r^3*x^2*y*z + r^6*x*y^2*z + r^4*y^3*z + x^2*z^2 + r^3*x*y*z^2 + r^5*y^2*z^2 + z^4,
+    x^4 + r^3*x^3*y + r^5*x*y^3 + y^4 + r^2*x^2*y*z + r^2*x*y^2*z + x^2*z^2 + r^2*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + r^3*x^3*y + r^6*x*y^3 + y^4 + r^4*x^2*y*z + r^4*x*y^2*z + x^2*z^2 + r^4*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + r^4*x^3*y + r^3*y^4 + r^6*x^2*y*z + r^5*x*y^2*z + r*y^3*z + x^2*z^2 + r^6*x*y*z^2 + r^3*y^2*z^2 + z^4,
+    x^4 + r^4*x^3*y + r^6*y^4 + x^2*y*z + x*y^2*z + r^2*y^3*z + x^2*z^2 + x*y*z^2 + r^6*y^2*z^2 + z^4,
+    x^4 + r^5*x^3*y + r^6*x*y^3 + y^4 + r*x^2*y*z + r*x*y^2*z + x^2*z^2 + r*x*y*z^2 + y^2*z^2 + z^4,
+    r*x^4 + r*x^3*y + r^5*y^4 + r^6*x^2*y*z + r^2*x*y^2*z + r^4*y^3*z + x^2*z^2 + r^5*y^2*z^2 + r^3*x*z^3 + z^4,
+    r*x^4 + r*x^3*y + r^5*x*y^3 + r^3*y^4 + r^5*x^2*y*z + r*y^3*z + x^2*z^2 + r^3*y^2*z^2 + r^3*x*z^3 + z^4,
+    r*x^4 + r^3*x^3*y + r^2*x*y^3 + r^3*y^4 + r*y^3*z + x^2*z^2 + r^3*x*y*z^2 + r^3*y^2*z^2 + r^3*x*z^3 + z^4,
+    r*x^4 + r^6*x^3*y + r^5*x*y^3 + r^5*y^4 + r^4*y^3*z + x^2*z^2 + r^5*y^2*z^2 + r^3*x*z^3 + z^4,
+    r^2*x^4 + r^2*x^3*y + r^3*x*y^3 + r^6*y^4 + r^3*x^2*y*z + r^2*y^3*z + x^2*z^2 + r^6*y^2*z^2 + r^6*x*z^3 + z^4,
+    r^2*x^4 + r^5*x^3*y + r^3*x*y^3 + r^3*y^4 + r*y^3*z + x^2*z^2 + r^3*y^2*z^2 + r^6*x*z^3 + z^4,
+    r^2*x^4 + r^6*x^3*y + r^4*x*y^3 + r^6*y^4 + r^2*y^3*z + x^2*z^2 + r^6*x*y*z^2 + r^6*y^2*z^2 + r^6*x*z^3 + z^4,
+    r^3*x^4 + r^5*x^2*y^2 + r^3*y^4 + r*x^3*z + r*y^3*z + r^3*x^2*z^2 + r*x*y*z^2 + r^3*y^2*z^2 + z^4,
+    r^4*x^4 + r^3*x^3*y + r^6*x*y^3 + r^6*y^4 + r^2*y^3*z + x^2*z^2 + r^6*y^2*z^2 + r^5*x*z^3 + z^4,
+    r^4*x^4 + r^5*x^3*y + r*x*y^3 + r^5*y^4 + r^4*y^3*z + x^2*z^2 + r^5*x*y*z^2 + r^5*y^2*z^2 + r^5*x*z^3 + z^4,
+    r^5*x^4 + r^6*x^2*y^2 + r^5*y^4 + r^4*x^3*z + r^4*y^3*z + r^5*x^2*z^2 + r^4*x*y*z^2 + r^5*y^2*z^2 + z^4,
+    r^6*x^4 + r^3*x^2*y^2 + r^6*y^4 + r^2*x^3*z + r^2*y^3*z + r^6*x^2*z^2 + r^2*x*y*z^2 + r^6*y^2*z^2 + z^4
+]
+
+
+
+
+q := 9 --- 27  Time: 1532.650
+r^2 + 2*r + 2 = 0
+[
+    x^4 + r^2*y^4 + r^2*x^2*z^2 + z^4,
+    x^4 + x^2*y^2 + r*x*y^3 + 2*y^4 + r^2*x^2*z^2 + r*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + r^3*x*y^3 + r^2*y^4 + r^2*x^2*z^2 + r*x*y*z^2 + z^4,
+    x^4 + r^2*x^2*y^2 + x*y^3 + r^2*y^4 + r^2*x^2*z^2 + 2*x*y*z^2 + z^4,
+    x^4 + r^3*x^2*y^2 + r^3*x*y^3 + r^2*y^4 + r^2*y^3*z + r^2*x^2*z^2 + r^3*x*y*z^2 + r^7*y*z^3 + z^4,
+    x^4 + 2*x^2*y^2 + r*x*y^3 + 2*y^4 + r^2*x^2*z^2 + r*x*y*z^2 + y^2*z^2 + z^4,
+    x^4 + r^7*x^2*y^2 + r^2*x*y^3 + r^2*y^4 + r*y^3*z + r^2*x^2*z^2 + x*y*z^2 + r^6*y*z^3 + z^4,
+    x^4 + x^3*y + x*y^3 + r^2*y^4 + r^2*x^2*z^2 + 2*x*y*z^2 + z^4,
+    x^4 + x^3*y + x*y^3 + r^2*y^4 + x^2*y*z + r*x*y^2*z + r^2*x^2*z^2 + r^2*x*y*z^2 + z^4,
+    x^4 + x^3*y + x*y^3 + r^6*y^4 + r^3*x^2*y*z + x*y^2*z + r^2*x^2*z^2 + r^7*y^2*z^2 + z^4,
+    x^4 + x^3*y + 2*x*y^3 + r^2*y^4 + r^2*x^2*z^2 + z^4,
+    x^4 + x^3*y + r^3*x^2*y^2 + r^7*x*y^3 + r^2*y^4 + r^2*x^2*z^2 + x*y*z^2 + z^4,
+    x^4 + x^3*y + 2*x^2*y^2 + r^2*y^4 + r^2*x^2*z^2 + r^2*x*y*z^2 + z^4,
+    x^4 + x^3*y + r^6*x^2*y^2 + r^2*x*y^3 + r^2*y^4 + r^2*x^2*z^2 + r^6*x*y*z^2 + z^4,
+    x^4 + r*x^3*y + r^3*x*y^3 + r^2*y^4 + r^2*x^2*z^2 + r*x*y*z^2 + z^4,
+    x^4 + r*x^3*y + r^7*x*y^3 + r^2*y^4 + r^2*x^2*z^2 + z^4,
+    x^4 + r*x^3*y + r^3*x^2*y^2 + x*y^3 + r^2*y^4 + r^2*x^2*z^2 + r^5*x*y*z^2 + z^4,
+    x^4 + r*x^3*y + 2*x^2*y^2 + r*x*y^3 + r^2*y^4 + r^2*x^2*z^2 + r^7*x*y*z^2 + z^4,
+    x^4 + r*x^3*y + r^6*x^2*y^2 + r^2*y^4 + r^2*x^2*z^2 + r^3*x*y*z^2 + z^4,
+    r^2*x^4 + r^3*y^4 + r*x^2*y*z + r^2*y^3*z + r^6*y^2*z^2 + r^7*y*z^3 + z^4,
+    r^2*x^4 + r^5*y^4 + r^2*x^2*y*z + r*y^3*z + 2*y^2*z^2 + r^6*y*z^3 + z^4,
+    r^2*x^4 + r*x^2*y^2 + r^2*y^4 + x*y*z^2 + z^4,
+    r^2*x^4 + r^3*x^2*y^2 + r^2*y^4 + x*y*z^2 + z^4,
+    r^2*x^4 + x^3*y + r*x^2*y^2 + 2*x*y^3 + r^2*y^4 + r^3*x*y*z^2 + z^4,
+    r^2*x^4 + x^3*y + r^3*x^2*y^2 + r^6*y^4 + r^6*x*y*z^2 + r^7*y^2*z^2 + z^4,
+    r^2*x^4 + x^3*y + r^5*x^2*y^2 + r^6*y^4 + x*y*z^2 + r^7*y^2*z^2 + z^4,
+    r^2*x^4 + x^3*y + r^7*x^2*y^2 + 2*x*y^3 + r^2*y^4 + r^3*x*y*z^2 + z^4
+]
+
+
+
+
+q := 11 --- 21  Time: 15060.96
+[
+    x^4 + 3*x^2*z^2 + 3*x*y^3 + 3*x*y*z^2 + 3*y^4 + 10*y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + 3*x^2*z^2 + 2*x*y^3 + 3*x*y*z^2 + y^4 + 3*y^2*z^2 + z^4,
+    x^4 + x^2*y^2 + 3*x^2*z^2 + 3*x*y^3 + 4*x*y*z^2 + 9*y^4 + 9*y^2*z^2 + z^4,
+    x^4 + 2*x^2*y^2 + 3*x^2*z^2 + 5*x*y^3 + 2*x*y*z^2 + 9*y^4 + 9*y^2*z^2 + z^4,
+    x^4 + 2*x^2*y^2 + 3*x^2*z^2 + 5*x*y^3 + 7*x*y*z^2 + 9*y^4 + 9*y^2*z^2 + z^4,
+    x^4 + 3*x^2*y^2 + 3*x^2*z^2 + y^4 + 3*y^2*z^2 + z^4,
+    x^4 + 4*x^2*y^2 + 3*x^2*z^2 + 7*y^4 + 2*y^3*z + 2*y^2*z^2 + 7*y*z^3 + z^4,
+    x^4 + 7*x^2*y^2 + x^2*y*z + 3*x^2*z^2 + 3*x*y^3 + 2*x*y^2*z + 7*x*y*z^2 + 4*y^4 + 8*y^2*z^2 + z^4,
+    x^4 + 8*x^2*y^2 + 3*x^2*z^2 + 3*x*y^3 + 2*x*y*z^2 + 9*y^4 + 9*y^2*z^2 + z^4,
+    x^4 + x^3*y + 3*x^2*y^2 + 3*x^2*z^2 + 7*x*y^3 + 3*y^4 + 10*y^2*z^2 + z^4,
+    x^4 + x^3*y + 6*x^2*y^2 + 3*x^2*z^2 + 4*x*y^3 + y^4 + 3*y^2*z^2 + z^4,
+    x^4 + 2*x^3*y + 2*x^2*y^2 + 3*x^2*z^2 + 5*x*y^3 + 9*y^4 + 9*y^2*z^2 + z^4,
+    x^4 + 3*x^3*y + 2*x^2*y^2 + 3*x^2*z^2 + 8*x*y^3 + 3*y^4 + 10*y^2*z^2 + z^4,
+    x^4 + 4*x^3*y + 4*x^2*y^2 + 3*x^2*z^2 + 10*x*y*z^2 + 5*y^4 + 6*y^2*z^2 + z^4,
+    x^4 + 4*x^3*y + 5*x^2*y^2 + 3*x^2*z^2 + 10*x*y*z^2 + 5*y^4 + 6*y^2*z^2 + z^4,
+    3*x^4 + x^3*y + 4*x^2*y^2 + 10*x^2*z^2 + 10*x*y*z^2 + 4*y^4 + 8*y^2*z^2 + z^4,
+    3*x^4 + 2*x^3*y + 10*x^2*z^2 + 4*x*y*z^2 + 5*y^4 + 6*y^2*z^2 + z^4,
+    3*x^4 + 3*x^3*y + 10*x^2*z^2 + 5*x*y^3 + 2*x*y*z^2 + 3*y^4 + 10*y^2*z^2 + z^4,
+    4*x^4 + 3*x^2*y^2 + 8*x^2*z^2 + 5*y^4 + 6*y^2*z^2 + z^4,
+    4*x^4 + 6*x^2*y^2 + 8*x^2*z^2 + 4*y^4 + 8*y^2*z^2 + z^4,
+    4*x^4 + 2*x^3*y + 8*x^2*z^2 + x*y^3 + 5*y^4 + 6*y^2*z^2 + z^4
+]
+
+
+
+
+q := 13 ---  11  Time: 36693.780
+
+[
+    x^4 + 3*y^4 + 4*x^2*z^2 + z^4,
+    x^4 + x^2*y^2 + 4*x*y^3 + 3*y^4 + 4*x^2*z^2 + x*y*z^2 + z^4,
+    x^4 + x^3*y + x*y^3 + 9*y^4 + 4*x^2*z^2 + y^2*z^2 + z^4,
+    x^4 + 2*x^3*y + x^2*y^2 + 7*x*y^3 + 3*y^4 + 4*x^2*z^2 + z^4,
+    3*x^4 + x*y^3 + 4*y^4 + x*y*z^2 + 11*y^2*z^2 + z^4,
+    3*x^4 + 2*x^2*y^2 + 3*y^4 + 5*x*y*z^2 + z^4,
+    3*x^4 + 4*x^2*y^2 + 3*y^4 + 6*x*y*z^2 + z^4,
+    3*x^4 + 5*x^2*y^2 + 3*y^4 + z^4,
+    3*x^4 + 4*x^3*y + 2*x*y^3 + 10*y^4 + 10*x*y*z^2 + 12*y^2*z^2 + z^4,
+    3*x^4 + 4*x^3*y + 9*x*y^3 + 3*y^4 + 2*x*y*z^2 + z^4,
+    4*x^4 + 4*x^2*y^2 + 3*x*y^3 + 12*y^4 + 11*x^2*z^2 + 8*y^2*z^2 + z^4
+]
+
+
+
+
+q := 16 --- 8   four cores, total time 321947.28
+Each process obtained all 8 curves:
+[
+    r^2*x^4 + r^10*x^3*y + r^13*y^4 + r^10*x^3*z + r^12*x*y^2*z + r^9*x^2*z^2 + r^2*x*z^3 + r^13*y*z^3 + z^4,
+    r^5*x^4 + r^2*x^2*y^2 + r^3*x*y^3 + r^5*y^4 + r^6*x^3*z + r^6*y^3*z + r^9*x*y*z^2 + z^4,
+    r^5*x^4 + r^11*x^2*y^2 + r^13*y^4 + r^6*x^3*z + r^11*x^2*y*z + r^6*x*y^2*z + r^6*x*y*z^2 + r^13*y*z^3 + z^4,
+    r^5*x^4 + r^14*x^2*y^2 + r^5*y^4 + r^6*x^3*z + r^6*y^3*z + r^9*x*y*z^2 + z^4,
+    r^5*x^4 + r*x^3*y + r*x^2*y^2 + r*x*y^3 + r^5*y^4 + r^6*x^3*z + r^6*y^3*z + r^14*x*y*z^2 + z^4,
+    r^5*x^4 + r^4*x^3*y + r^10*x^2*y^2 + r^7*x*y^3 + r^5*y^4 + r^6*x^3*z + r^6*y^3*z + r^9*x*y*z^2 + z^4,
+    r^5*x^4 + r^4*x^3*y + r^14*x^2*y^2 + r^4*x*y^3 + r^5*y^4 + r^6*x^3*z + r^6*y^3*z + r^4*x*y*z^2 + z^4,
+    r^13*x^4 + r^4*x*y^3 + r^14*y^4 + r^10*x^2*y*z + r*y^2*z^2 + r^13*x*z^3 + r^7*y*z^3 + z^4
+]
+
+
+
+*/
+
+

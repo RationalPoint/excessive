@@ -1,0 +1,1050 @@
+// AllGenus3.magma, version 1.0, 1 July 2022.
+
+/*
+The Magma programs in this file are associated with the paper
+
+             On the Maximum Gonality of a Curve over a Finite Field
+
+by Xander Faber, Jon Grantham, and Everett W. Howe
+
+This file contains information about the 215 excessive curves of genus 3 over
+finite fields, in a form that we hope is both human- and computer-readable.
+A human interested in finding equations for the excessive curves of genus 3 over
+a particular field GF(q) should be able to scan through the code of the function 
+ExcessiveGenus3() to find lines that begin "q :=" and then look beneath them
+to find equations for the excessive curves over that field. The curves are
+grouped together by automorphism group; within automorphism groups, by real Weil
+polynomial; and within these group, by Galois conjugacy. The automorphism 
+groups are given by labels as described below. The equations for the curves have
+been chosen in such a way that at least some of the automorphisms should be 
+apparent.
+
+The function ExcessiveGenus3() creates a list of plane quartic models of the 
+215 excessive curves of genus 3 over finite fields F_q, together with their 
+real Weil polynomials and a label identifying their groups of F_q-rational 
+automorphisms. Recall that an excessive curve C/F_q of genus 3 is precisely a
+curve that has a nonsingular plane quartic model and that has no F_q-rational
+points.
+
+The function VerifyGenus3() takes as input a list of triples of the form output
+by ExcessiveGenus3(), each triple containing a real Weil polynomial, a group
+label, and a plane quartic over a finite field, and it checks:
+
+* that each quartic defines a curve of genus 3 with no rational points;
+* that each real Weil polynomial is the one associated to the corresponding 
+  curve;
+* that each group label agrees with that of the automorphism group of the
+  corresponding curve; 
+* that the curves are pairwise non-isomorphic; and
+* that the number of curves for each finite field, and the total number of 
+  curves, agrees with the values presented in the paper.
+
+If all of these conditions are satisfied, the function returns the value "true".
+If not, it returns "false".
+
+Since Magma's AutomorphismGroup() function returns a structure that is not
+amenable to Magma's functions for checking group isomorphisms, we verify the 
+identity of the automorphism group G by its order and by the sorted list of
+pairs [O_x, C_x] for all x in G, where O_x is the order of x and C_x is the
+cardinality of the centralizer of x. For the groups we encounter, this 
+information is sufficient to identify the group.
+
+The groups we encounter are the following:
+
+Label     Order   Description
+-----     -----   -----------
+C1           1    Trivial groups
+C2           2    Cyclic group of order 2
+C3           3    Cyclic group of order 3
+C2^2         4    Klein 4-group
+C4           4    Cyclic group of order 4
+S3           6    Symmetric group on 3 elements
+C7           7    Cyclic group of order 7
+C2*C4        8    Direct product of C2 with C4
+D4           8    Dihedral group of order 8
+D4:C2       16    The extension of D4 by C2, where the nonzero element of C2 
+                  acts on D4 as conjugation by one of the order-4 elements of D4
+S4          24    Symmetric group on 4 elements
+C4wrC2      32    Wreath product of C4 by C2; i.e. semidirect product of C4^2
+                  by C2, where C2 acts by swapping factors
+C4^2:C3:C2  96    The semidirect product of C4^2 by S3, where C4^2 is viewed as
+                  the trace-0 subgroup of C4^3 and where S3 acts by permuting
+                  the factors of C4^3
+PSL(2,7)   168    Projective special linear group of dimension 2 over GF(7); 
+                  also, general linear group of dimension 3 over GF(2)
+
+
+There are of course many plane quartic models for a given nonhyperelliptic
+curve of genus 3. We choose our models so that the automorphism group of the
+curve is as visible as possible. For example, in odd characteristic, a curve
+with automorphism group C2^2 can always be written in the form
+   0 = a*x^4 + b*y^4 + c*z^4 + d*x^2*y^2 + e*x^2*z^2 + f*y^2*z^2,
+and this model makes it clear that changing the signs of any number of the
+coordinates gives an involution of the curve. Similarly, every curve with
+automorphism group S3 that we encounter on this list can be written as a plane
+quartic built up from the symmetric functions in x, y, and z, so that permuting
+the coordinates gives an action of S3 on the curve.
+
+
+*/
+
+
+/*
+Version history:
+
+------------------------------------------------------------------------
+Version 0.9 --- 28 April 2022: 
+   First prerelease version.
+   
+Version 0.91 --- 30 April 2022: 
+   Corrected typos in introductory comments.
+
+Version 1.0 --- 1 July 2022:
+   First released version. 
+   No changes from previous.
+
+*/
+
+
+
+function ExcessiveGenus3();
+// Take the empty input, and produce a list of 215 triples, each triple being
+//    * a real Weil q-polynomial 
+//    * a string containing the name of a group
+//    * a genus-3 curve C/GF(q) defined by a plane quartic.
+// For each triple, the real Weil polynomial is supposed to be the real Weil
+// polynomial for the curve C, and the group named by the string is supposed to
+// be the group of GF(q)-rational automorphisms of C. These requirements are 
+// not verified by this function; see the function VerifyGenus3() below.
+
+  Z<t>:=PolynomialRing(Rationals());
+  allcurves := <>;
+
+  q := 2;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(2), grouped by automorphism group:
+
+  list2 := [
+
+  // Automorphism group C2:
+  // [x,y,z] --> [y, x, z] has order 2
+  <t^3 - 3*t^2 - 2*t +  8, "C2",       (x^4 + x^2*y^2 + y^4) + (x^3 + x^2*y + x*y^2 + y^3)*z + x*y*z^2 + z^4>,
+
+  // Automorphism group C3: 
+  // [x,y,z] --> [y, z, x] has order 3
+  <t^3 - 3*t^2 - 3*t + 10, "C3",       (x^4 + y^4 + z^4) + (x*y^3 + y*z^3 + z*x^3) + (x^2*y*z + x*y^2*z + x*y*z^2)>,
+
+  // Automorphism group C7: 
+  // [x,y,z] --> [z, x + z, y] has order 7
+  <t^3 - 3*t^2 - 4*t + 13, "C7",        x^4 + y^4 + z^4 + x^3*y + y^3*z + z^3*x + x^2*y*z>,
+
+  // Automorphism group PSL(2,7) = PGL(3,2):
+  // All elements of PGL(3,2) give automorphisms
+  <t^3 - 3*t^2 + 3*t -  1, "PSL(2,7)", (x^2 + x*z)^2+ (y^2 + y*z)*(x^2 + x*z) + (y^2 + y*z)^2 + z^4>
+
+  ];
+
+  for triple in list2 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 3;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(2), grouped by automorphism group:
+
+  list3 := [
+
+  // Automorphism group C1:
+  <t^3 - 4*t^2 - 3*t + 17, "C1", x^4 + x*y^3 + 2*y^4 + x^2*y*z + 2*x*y*z^2 + 2*y^2*z^2 + z^4>,
+  <t^3 - 4*t^2 - 2*t + 14, "C1", x^4 + x*y^3 + 2*y^4 + x^2*y*z + x*y^2*z + y*z^3 + z^4>,
+  <t^3 - 4*t^2 -   t + 11, "C1", x^4 + x*y^3 + 2*y^4 + x^2*y*z + x*y^2*z + y^2*z^2 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [x, y, -z] has order 2
+  <t^3 - 4*t^2 - 5*t + 24, "C2", (x^4 + 2*x^3*y + x^2*y^2 + y^4) + (2*x^2 + 2*y^2)*z^2 + 2*z^4>,
+  <t^3 - 4*t^2 - 3*t + 18, "C2", (x^4 + x*y^3 + 2*y^4) + 2*y^2*z^2 + z^4>,
+  <t^3 - 4*t^2 -   t + 12, "C2", (x^4 + x^2*y^2 + x*y^3 + y^4) + 2*x*y*z^2 + z^4>,
+  <t^3 - 4*t^2 + 2*t +  4, "C2", (x^4 + x^2*y^2 + x*y^3 + y^4) + 2*y^2*z^2 + z^4>,
+
+  // Automorphism group C4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  <t^3 - 4*t^2       +  8, "C4", (x^4 + x^3*y + 2*x*y^3 + y^4) + (2*x^2 + 2*y^2)*z^2 + z^4>
+
+  ];
+
+  for triple in list3 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 4;
+  K<r>:=ext<GF(2) | t^2 + t + 1>;
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(4), grouped by automorphism group and Galois conjugacy:
+
+  list4 := [
+
+  // Automorphism group C1:
+  <t^3 - 5*t^2 - 2*t + 25, "C1", x^4 + x*y^3 + y^4 + r  *x^3*z + r  *y^3*z + x*y*z^2 + y^2*z^2 + x*z^3 + z^4>,
+  <t^3 - 5*t^2 - 2*t + 25, "C1", x^4 + x*y^3 + y^4 + r^2*x^3*z + r^2*y^3*z + x*y*z^2 + y^2*z^2 + x*z^3 + z^4>,
+
+  <t^3 - 5*t^2 +   t + 14, "C1", x^4 + x*y^3 + y^4 + x^2*z^2 + r  *x*z^3 + y*z^3 + z^4>,
+  <t^3 - 5*t^2 +   t + 14, "C1", x^4 + x*y^3 + y^4 + x^2*z^2 + r^2*x*z^3 + y*z^3 + z^4>,
+
+  <t^3 - 5*t^2 +   t + 13, "C1", x^4 + x*y^3 + y^4 + x^3*z + r  *x*z^3 + y*z^3 + z^4>,
+  <t^3 - 5*t^2 +   t + 13, "C1", x^4 + x*y^3 + y^4 + x^3*z + r^2*x*z^3 + y*z^3 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [y, x, z] has order 2
+  <t^3 - 5*t^2 - 4*t + 32, "C2", (x^4 + r  *x^2*y^2 + y^4) + (r^2*x^3 + r^2*x^2*y + r^2*x*y^2 + r^2*y^3)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 5*t^2 - 4*t + 32, "C2", (x^4 + r^2*x^2*y^2 + y^4) + (r  *x^3 + r  *x^2*y + r  *x*y^2 + r*  y^3)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+
+  <t^3 - 5*t^2 -   t + 21, "C2", (x^4 + r  *x^2*y^2 + y^4) + (x^2*y + x*y^2)*z + (x^2 + x*y + y^2)*z^2 + (r  *x + r  *y)*z^3 + z^4>,
+  <t^3 - 5*t^2 -   t + 21, "C2", (x^4 + r^2*x^2*y^2 + y^4) + (x^2*y + x*y^2)*z + (x^2 + x*y + y^2)*z^2 + (r^2*x + r^2*y)*z^3 + z^4>,
+
+  <t^3 - 5*t^2 -   t + 21, "C2", (x^4 + x^3*y + r  *x^2*y^2 + x*y^3 + y^4) + (r  *x^2*y + r  *x*y^2)*z + (r  *x^2 + x*y + r  *y^2)*z^2 + z^4>,
+  <t^3 - 5*t^2 -   t + 21, "C2", (x^4 + x^3*y + r^2*x^2*y^2 + x*y^3 + y^4) + (r^2*x^2*y + r^2*x*y^2)*z + (r^2*x^2 + x*y + r^2*y^2)*z^2 + z^4>,
+
+  <t^3 - 5*t^2 +   t + 15, "C2", (x^4 + x^3*y + x^2*y^2 + x*y^3 + y^4) + (x^2*y + x*y^2)*z + r  *x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 5*t^2 +   t + 15, "C2", (x^4 + x^3*y + x^2*y^2 + x*y^3 + y^4) + (x^2*y + x*y^2)*z + r^2*x*y*z^2 + (x + y)*z^3 + z^4>,
+
+  <t^3 - 5*t^2 + 4*t +  4, "C2", (x^4 + x^3*y + r  *x^2*y^2 + x*y^3 + y^4) + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 5*t^2 + 4*t +  4, "C2", (x^4 + x^3*y + r^2*x^2*y^2 + x*y^3 + y^4) + x*y*z^2 + (x + y)*z^3 + z^4>,
+
+  // Automorphism group C7: 
+  // [x,y,z] --> [z, x + z, y] has order 7
+  <t^3 - 5*t^2 + 6*t -  1, "C7", x^4 + y^4 + z^4 + x^3*y + y^3*z + z^3*x + x^2*y*z>,
+
+  // Automorphism group D4:
+  // [x,y,z] --> [x + y, y + z, z] has order 4
+  // [x,y,z] --> [x    , y + z, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  <t^3 - 5*t^2 + 3*t + 9, "D4", x*(x + y)*(x + z)*(x + y + z) + r  *y^2*(y + z)^2 + r^2*z^4>,
+  <t^3 - 5*t^2 + 3*t + 9, "D4", x*(x + y)*(x + z)*(x + y + z) + r^2*y^2*(y + z)^2 + r  *z^4>,
+
+  <t^3 - 5*t^2 + 7*t - 3, "D4", x*(x + y)*(x + z)*(x + y + z) + r  *(y^4 + y*z^3) + r  *z^4>,
+  <t^3 - 5*t^2 + 7*t - 3, "D4", x*(x + y)*(x + z)*(x + y + z) + r^2*(y^4 + y*z^3) + r^2*z^4>
+
+  ];
+
+
+
+
+
+  for triple in list4 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 5;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(5), grouped by automorphism group:
+
+  list5 := [
+
+  // Automorphism group C1:
+  <t^3 - 6*t^2        + 31, "C1", x^4 + 2*y^4 + x^2*y*z + y^3*z + 2*x*y*z^2 + 4*y^2*z^2 + z^4>,
+  <t^3 - 6*t^2 +    t + 27, "C1", 2*x^4 + x*y^3 + 3*y^4 + 2*x^2*y*z + x^2*z^2 + x*y*z^2 + z^4>,
+  <t^3 - 6*t^2 +    t + 27, "C1", x^4 + x*y^3 + 4*y^4 + 2*x^3*z + x^2*z^2 + 2*x*z^3 + y*z^3 + z^4>,
+  <t^3 - 6*t^2 +  2*t + 22, "C1", x^4 + x*y^3 + 4*y^4 + 2*y^3*z + x^2*z^2 + x*y*z^2 + z^4>,
+  <t^3 - 6*t^2 +  3*t + 19, "C1", x^4 + x*y^3 + 4*y^4 + x^2*y*z + 4*x*y*z^2 + y*z^3 + z^4>,
+  <t^3 - 6*t^2 +  4*t + 14, "C1", x^4 + 3*y^4 + x^2*y*z + x*y^2*z + 4*y^3*z + 3*y*z^3 + z^4>,
+  <t^3 - 6*t^2 +  5*t + 10, "C1", 2*x^4 + x*y^3 + 3*y^4 + y^3*z + 4*x^2*z^2 + y*z^3 + z^4>,
+  <t^3 - 6*t^2 +  5*t + 11, "C1", x^4 + 3*y^4 + x^3*z + 3*x*y^2*z + x*y*z^2 + 3*x*z^3 + z^4>,
+  <t^3 - 6*t^2 +  6*t +  8, "C1", x^4 + x^2*y^2 + 4*y^4 + x^2*y*z + 2*x*y^2*z + y*z^3 + z^4>,
+  <t^3 - 6*t^2 +  7*t +  3, "C1", 2*x^4 + 4*y^4 + x*y^2*z + x^2*z^2 + x*y*z^2 + 2*y*z^3 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [x, y, -z] has order 2
+  <t^3 - 6*t^2 -  2*t + 40, "C2", (x^4 + x*y^3 + 4*y^4) + (x*y + 3*y^2)*z^2 + 2*z^4>,
+  <t^3 - 6*t^2 -  2*t + 40, "C2", (x^4 + x^3*y + 3*x*y^3 + 2*y^4) + x^2*z^2 + z^4>,
+  <t^3 - 6*t^2        + 32, "C2", (x^4 + x^3*y + x*y^3 + 3*y^4) + x*y*z^2 + z^4>,
+  <t^3 - 6*t^2 +  2*t + 24, "C2", (x^4 + 3*x^2*y^2 + 3*y^4) + (x^2 + x*y)*z^2 + 4*z^4>,
+  <t^3 - 6*t^2 +  2*t + 24, "C2", (x^4 + 3*y^4) + (x^2 + x*y + 2*y^2)*z^2 + z^4>,
+  <t^3 - 6*t^2 +  3*t + 18, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + 2*y^4) + x*y*z^2 + z^4>,
+  <t^3 - 6*t^2 +  4*t + 16, "C2", (x^4 + x^3*y + x*y^3 + 3*y^4) + x^2*z^2 + z^4>,
+  <t^3 - 6*t^2 +  5*t + 12, "C2", (x^4 + x^3*y + x*y^3 + 3*y^4) + 2*x*y*z^2 + 3*z^4>,
+  <t^3 - 6*t^2 +  7*t +  6, "C2", (x^4 + 3*x^2*y^2 + x*y^3 + y^4) + y^2*z^2 + z^4>,
+  <t^3 - 6*t^2 +  7*t +  6, "C2", (x^4 + x^3*y + 4*x*y^3 + y^4) + (x*y + y^2)*z^2 + 2*z^4>,
+
+  // Automorphism group C3:
+  // [x,y,z] --> [y, z, x] has order 3
+  <t^3 - 6*t^2 -  3*t + 44, "C3", (x^4 + y^4 + z^4) + 3*(x*y^3 + y*z^3 + z*x^3) + 4*(x^2*y^2+ y^2*z^2 + z^2*x^2)>,
+  <t^3 - 6*t^2 +  3*t + 18, "C3", (x^4 + y^4 + z^4) + (x^3*y + y^3*z + z^3*x) + 4*(x*y^3 + y*z^3 + z*x^3) + 2*(x^2*y*z + y^2*z*x + z^2*x*y)>,
+
+  // Automorphism group C4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  <t^3 - 6*t^2        + 32, "C4", (x^4 + y^4 + x^3*y + 4*x*y^3) + (2*x^2 + 2*y^2)*z^2 + 3*z^4>,
+  <t^3 - 6*t^2 +  6*t +  4, "C4", (x^4 + y^4 + x^3*y + 4*x*y^3 + 4*x^2*y^2) + (x^2 + y^2)*z^2 + 4*z^4>,
+
+  // Automorphism group S3:
+  // Every permutation of x, y, and z is an automorphism
+  <t^3 - 6*t^2        + 32, "S3", (x + y + z)^4                                     + 2*(x*y + x*z + y*z)^2 + 4*(x*y*z)*(x + y + z)>,
+  <t^3 - 6*t^2 +  9*t -  4, "S3", (x + y + z)^4 + 4*(x + y + z)^2*(x*y + x*z + y*z) +   (x*y + x*z + y*z)^2 +   (x*y*z)*(x + y + z)>,
+  <t^3 - 6*t^2 +  9*t     , "S3", (x + y + z)^4 +   (x + y + z)^2*(x*y + x*z + y*z) + 3*(x*y + x*z + y*z)^2 + 4*(x*y*z)*(x + y + z)>,
+
+  // Automorphism group C2*C4:
+  // [x,y,z] --> [x,  y, 2*z] has order 4
+  // [x,y,z] --> [x, -y,   z] has order 2
+  <t^3 - 6*t^2 +  8*t     , "C2*C4", x^4 + x^2*y^2 + 2*y^4 + 2*z^4>,
+
+  // Automorphism group S4:
+  // Every permutation of x, y, and z is an automorphism
+  // Changing the sign of x, y, or z is an automorphism
+  <t^3 - 6*t^2 + 12*t -  8, "S4", x^4 + y^4 + z^4 + x^2*y^2 + x^2*z^2 + y^2*z^2>,
+
+  // Automorphism group C4wrC2:
+  // [x,y,z] --> [2*x,   y, z] has order 4
+  // [x,y,z] --> [  x, 2*y, z] has order 4
+  // Together they generate C4^2
+  // [x,y,z] --> [y, x, z] has order 2, and conjugates each into the other
+  <t^3 - 6*t^2        + 32, "C4wrC2", x^4 + y^4 + 2*z^4>,
+
+  // Automorphism group C4^2:C3:C2:
+  // [x,y,z] --> [2*x,   y, z] has order 4
+  // [x,y,z] --> [  x, 2*y, z] has order 4
+  // Together they generate C4^2. 
+  // We can view C4^2 as the trace-0 subgroup of C4^3.
+  // Permutations of x, y, and z act on this.
+  // The resulting group of order 96 is isomorphic to C4^2:C3:C2.
+  <t^3 - 6*t^2 + 12*t -  8, "C4^2:C3:C2", x^4 + y^4 + z^4>
+
+  ];
+
+  for triple in list5 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 7;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(7), grouped by automorphism group:
+
+  list7 :=[
+
+  // Automorphism group C1:
+  <t^3 - 8*t^2 +  9*t + 29, "C1", x^4 + 2*y^4 + x*y^2*z + y^3*z + x^2*z^2 + x*y*z^2 + x*z^3 + z^4>,
+  <t^3 - 8*t^2 +  9*t + 29, "C1", x^4 + y^4 + 2*x^2*y*z + 5*x*y^2*z + 2*x^2*z^2 + x*z^3 + z^4>,
+  <t^3 - 8*t^2 + 11*t + 18, "C1", x^4 + x*y^3 + y^4 + x^3*z + x^2*z^2 + 3*x*y*z^2 + 6*y*z^3 + z^4>,
+  <t^3 - 8*t^2 + 11*t + 19, "C1", x^4 + y^4 + 5*x^2*y*z + 4*x*y^2*z + y^3*z + 2*y^2*z^2 + x*z^3 + z^4>,
+  <t^3 - 8*t^2 + 13*t + 10, "C1", x^4 + x*y^3 + y^4 + 6*x^2*y*z + y^3*z + 5*x*y*z^2 + x*z^3 + z^4>,
+  <t^3 - 8*t^2 + 14*t +  4, "C1", x^4 + 3*x^2*y^2 + x*y^3 + 3*y^4 + x*y^2*z + x*y*z^2 + y*z^3 + z^4>,
+  <t^3 - 8*t^2 + 15*t -  1, "C1", x^4 + x*y^3 + y^4 + x^3*z + x^2*y*z + y^2*z^2 + 6*y*z^3 + z^4>,
+  <t^3 - 8*t^2 + 16*t -  3, "C1", x^4 + y^4 + 2*x^2*y*z + y^3*z + x*y*z^2 + y^2*z^2 + x*z^3 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [x, y, -z] has order 2
+  <t^3 - 8*t^2 +  5*t + 50, "C2", (x^4 + x*y^3 + y^4) + (x^2 + 5*x*y + 5*y^2)*z^2 + 3*z^4>,
+  <t^3 - 8*t^2 +  7*t + 40, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + y^4) + (6*x^2 + 5*y^2)*z^2 + 3*z^4>,
+  <t^3 - 8*t^2 +  7*t + 40, "C2", (x^4 + x^3*y + 3*x*y^3 + y^4) + 3*x^2*z^2 + x*y*z^2 + 2*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 +  7*t + 40, "C2", x^4 + 3*x^2*y^2 + y^4 + x*y*z^2 + 4*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 +  9*t + 30, "C2", x^4 + x*y^3 + y^4 + 2*x^2*z^2 + 5*x*y*z^2 + 6*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 + 10*t + 24, "C2", x^4 + x^2*y^2 + 2*x*y^3 + y^4 + 2*x^2*z^2 + 3*x*y*z^2 + z^4>,
+  <t^3 - 8*t^2 + 10*t + 24, "C2", x^4 + x^3*y + x^2*y^2 + 4*x*y^3 + y^4 + 2*x^2*z^2 + 2*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 + 11*t + 20, "C2", x^4 + 6*x^2*y^2 + 2*x*y^3 + y^4 + x*y*z^2 + z^4>,
+  <t^3 - 8*t^2 + 11*t + 20, "C2", x^4 + x^3*y + 6*x^2*y^2 + 3*x*y^3 + y^4 + 2*x*y*z^2 + z^4>,
+  <t^3 - 8*t^2 + 12*t + 16, "C2", x^4 + x*y^3 + y^4 + 2*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 + 12*t + 16, "C2", x^4 + 5*x^2*y^2 + 3*x*y^3 + y^4 + 6*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 + 12*t + 16, "C2", x^4 + x^2*y^2 + x*y^3 + y^4 + 5*x*y*z^2 + z^4>,
+  <t^3 - 8*t^2 + 14*t +  8, "C2", x^4 + 5*x^2*y^2 + 3*x*y^3 + y^4 + 5*x^2*z^2 + 6*y^2*z^2 + 3*z^4>,
+  <t^3 - 8*t^2 + 14*t +  8, "C2", x^4 + x^3*y + 3*x*y^3 + y^4 + x^2*z^2 + 4*x*y*z^2 + y^2*z^2 + 3*z^4>,
+  <t^3 - 8*t^2 + 15*t     , "C2", x^4 + 2*x^2*y^2 + x*y^3 + y^4 + 2*x^2*z^2 + 2*x*y*z^2 + 6*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 + 17*t -  6, "C2", x^4 + x*y^3 + y^4 + 4*x^2*z^2 + 2*y^2*z^2 + z^4>,
+  <t^3 - 8*t^2 + 17*t -  6, "C2", x^4 + x*y^3 + y^4 + 4*x^2*z^2 + 5*x*y*z^2 + z^4>,
+  <t^3 - 8*t^2 + 18*t - 12, "C2", x^4 + x^3*y + 5*x^2*y^2 + 5*x*y^3 + y^4 + 2*x^2*z^2 + 2*y^2*z^2 + z^4>,
+
+  // Automorphism group C2^2:
+  // [x,y,z] --> [-x,  y, z] has order 2
+  // [x,y,z] --> [ x, -y, z] has order 2
+  <t^3 - 8*t^2 + 16*t     , "C2^2", x^4 + 6*x^2*y^2 + y^4 + x^2*z^2 + 5*y^2*z^2 + 3*z^4>,
+
+  // Automorphism group C4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  <t^3 - 8*t^2 + 16*t -  8, "C4", (x^4 + 2*x^3*y + 5*x*y^3 + y^4) + (6*x^2 + 6*y^2)*z^2 + z^4>,
+  <t^3 - 8*t^2 + 10*t + 24, "C4", (x^4 + x^3*y + x^2*y^2 + 6*x*y^3 + y^4) + (4*x^2 + 4*y^2)*z^2 + z^4>,
+
+  // Automorphism group D4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  // [x,y,z] --> [ y, x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  <t^3 - 8*t^2 + 16*t     , "D4", (x^4 + y^4) + (5*x^2 + 5*y^2)*z^2 + 3*z^4>,
+  <t^3 - 8*t^2 + 16*t     , "D4", (x^4 + 4*x^2*y^2 + y^4) + (x^2 + y^2)*z^2 + 3*z^4>,
+  <t^3 - 8*t^2 + 20*t - 16, "D4", (x^4 + y^4) + (6*x^2 + 6*y^2)*z^2 + z^4>
+
+  ];
+
+
+  for triple in list7 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 8;
+  K<r>:=ext<GF(2) | t^3 + t + 1>;
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(8), grouped by automorphism group and Galois conjugacy:
+
+  list8 := [
+
+  // Automorphism group C1:
+  <t^3 - 9*t^2 + 20*t -  1, "C1", x^4 + r  *x^3*y + r^4*x*y^3 + y^4 + r^4*y^3*z + r^3*y^2*z^2 + r^3*x*z^3 + z^4>,
+  <t^3 - 9*t^2 + 20*t -  1, "C1", x^4 + r^2*x^3*y + r  *x*y^3 + y^4 + r  *y^3*z + r^6*y^2*z^2 + r^6*x*z^3 + z^4>,
+  <t^3 - 9*t^2 + 20*t -  1, "C1", x^4 + r^4*x^3*y + r^2*x*y^3 + y^4 + r^2*y^3*z + r^5*y^2*z^2 + r^5*x*z^3 + z^4>,
+
+  <t^3 - 9*t^2 + 17*t + 11, "C1", x^4 + r^3*x*y^3 + y^4 + r^2*x^2*y*z + x^2*z^2 + r^5*x*z^3 + y*z^3 + z^4>,
+  <t^3 - 9*t^2 + 17*t + 11, "C1", x^4 + r^6*x*y^3 + y^4 + r^4*x^2*y*z + x^2*z^2 + r^3*x*z^3 + y*z^3 + z^4>,
+  <t^3 - 9*t^2 + 17*t + 11, "C1", x^4 + r^5*x*y^3 + y^4 + r  *x^2*y*z + x^2*z^2 + r^6*x*z^3 + y*z^3 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [y, x, z] has order 2
+  <t^3 - 9*t^2 + 11*t + 45, "C2", (x^4 + x^3*y + r^6*x^2*y^2 + x*y^3 + y^4) + (r  *x^2*y + r  *x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 11*t + 45, "C2", (x^4 + x^3*y + r^5*x^2*y^2 + x*y^3 + y^4) + (r^2*x^2*y + r^2*x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 11*t + 45, "C2", (x^4 + x^3*y + r^3*x^2*y^2 + x*y^3 + y^4) + (r^4*x^2*y + r^4*x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+
+  <t^3 - 9*t^2 + 15*t + 25, "C2", (x^4 + r  *x^2*y^2 + y^4) + (r^2*x^2*y + r^2*x*y^2)*z + r  *x*y*z^2 + (r^3*x + r^3*y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 15*t + 25, "C2", (x^4 + r^2*x^2*y^2 + y^4) + (r^4*x^2*y + r^4*x*y^2)*z + r^2*x*y*z^2 + (r^6*x + r^6*y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 15*t + 25, "C2", (x^4 + r^4*x^2*y^2 + y^4) + (r  *x^2*y + r  *x*y^2)*z + r^4*x*y*z^2 + (r^5*x + r^5*y)*z^3 + z^4>,
+
+  <t^3 - 9*t^2 + 17*t + 15, "C2", (x^4 + r^2*x^3*y + x^2*y^2 + r^2*x*y^3 + y^4) + (r^3*x^2*y + r^3*x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 17*t + 15, "C2", (x^4 + r^4*x^3*y + x^2*y^2 + r^4*x*y^3 + y^4) + (r^6*x^2*y + r^6*x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 17*t + 15, "C2", (x^4 + r  *x^3*y + x^2*y^2 + r  *x*y^3 + y^4) + (r^5*x^2*y + r^5*x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+
+  <t^3 - 9*t^2 + 20*t     , "C2", (x^4 + r  *x^3*y + r^5*x^2*y^2 + r  *x*y^3 + y^4) + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 20*t     , "C2", (x^4 + r^2*x^3*y + r^3*x^2*y^2 + r^2*x*y^3 + y^4) + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 20*t     , "C2", (x^4 + r^4*x^3*y + r^6*x^2*y^2 + r^4*x*y^3 + y^4) + x*y*z^2 + (x + y)*z^3 + z^4>,
+
+  <t^3 - 9*t^2 + 21*t -  9, "C2", (x^4 + r^3*x^3*y + r^5*x^2*y^2 + r^3*x*y^3 + y^4) + (x^2*y + x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 21*t -  9, "C2", (x^4 + r^6*x^3*y + r^3*x^2*y^2 + r^6*x*y^3 + y^4) + (x^2*y + x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+  <t^3 - 9*t^2 + 21*t -  9, "C2", (x^4 + r^5*x^3*y + r^6*x^2*y^2 + r^5*x*y^3 + y^4) + (x^2*y + x*y^2)*z + x*y*z^2 + (x + y)*z^3 + z^4>,
+
+  // Automorphism group C2^2, first version:
+  // [x,y,z] --> [y, x, z] has order 2
+  // [x,y,z] --> [x, y, z + x + y] has order 2
+  <t^3 - 9*t^2 + 23*t - 15, "C2^2", (z^2 + x*z + y*z)^2 + (x^2 + r  *x*y + y^2)*(z^2 + x*z + y*z) + r^5*x^4 + r^5*x^2*y^2 + r^5*y^4>,
+  <t^3 - 9*t^2 + 23*t - 15, "C2^2", (z^2 + x*z + y*z)^2 + (x^2 + r^2*x*y + y^2)*(z^2 + x*z + y*z) + r^3*x^4 + r^3*x^2*y^2 + r^3*y^4>,
+  <t^3 - 9*t^2 + 23*t - 15, "C2^2", (z^2 + x*z + y*z)^2 + (x^2 + r^4*x*y + y^2)*(z^2 + x*z + y*z) + r^6*x^4 + r^6*x^2*y^2 + r^6*y^4>,
+
+  // Automorphism group C2^2, second version:
+  // [x,y,z] --> [y    , x    , z] has order 2
+  // [x,y,z] --> [x + z, y + z, z] has order 2
+  <t^3 - 9*t^2 + 23*t - 15, "C2^2", z^4 + r^4*(x + y)^3*z + r  *(x^2 + x*z)*(y^2 + y*z) + r  *(x + y)^4>,
+  <t^3 - 9*t^2 + 23*t - 15, "C2^2", z^4 + r  *(x + y)^3*z + r^2*(x^2 + x*z)*(y^2 + y*z) + r^2*(x + y)^4>,
+  <t^3 - 9*t^2 + 23*t - 15, "C2^2", z^4 + r^2*(x + y)^3*z + r^4*(x^2 + x*z)*(y^2 + y*z) + r^4*(x + y)^4>,
+
+  // Automorphism group S3:
+  // Every permutation of x, y, and z is an automorphism
+  <t^3 - 9*t^2 + 15*t + 25, "S3", (x + y + z)^4 + r  *(x*y + x*z + y*z)^2 + r^6*(x + y + z)*(x*y*z)>,
+  <t^3 - 9*t^2 + 15*t + 25, "S3", (x + y + z)^4 + r^2*(x*y + x*z + y*z)^2 + r^5*(x + y + z)*(x*y*z)>,
+  <t^3 - 9*t^2 + 15*t + 25, "S3", (x + y + z)^4 + r^4*(x*y + x*z + y*z)^2 + r^3*(x + y + z)*(x*y*z)>,
+
+  // Automorphism group D4:
+  // [x,y,z] --> [x + y, y + z, z] has order 4
+  // [x,y,z] --> [x    , y + z, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  <t^3 - 9*t^2 + 15*t + 25, "D4", x*(x + y)*(x + z)*(x + y + z) + r^3*(y^4 + y*z^3) + r^3*z^4>,
+  <t^3 - 9*t^2 + 15*t + 25, "D4", x*(x + y)*(x + z)*(x + y + z) + r^6*(y^4 + y*z^3) + r^6*z^4>,
+  <t^3 - 9*t^2 + 15*t + 25, "D4", x*(x + y)*(x + z)*(x + y + z) + r^5*(y^4 + y*z^3) + r^5*z^4>,
+
+  // Automorphism group S4:
+  // Every permutation of x, y, and z is an automorphism
+  // [x,y,z] --> [x + z, y + z, z] has order 2
+  <t^3 - 9*t^2 + 27*t - 27, "S4", (x + y + z)^4 + (x*y + x*z + y*z)^2 + r  *(x + y + z)*(x*y*z)>,
+  <t^3 - 9*t^2 + 27*t - 27, "S4", (x + y + z)^4 + (x*y + x*z + y*z)^2 + r^2*(x + y + z)*(x*y*z)>,
+  <t^3 - 9*t^2 + 27*t - 27, "S4", (x + y + z)^4 + (x*y + x*z + y*z)^2 + r^4*(x + y + z)*(x*y*z)>,
+
+  <t^3 - 9*t^2 + 27*t - 27, "S4", (x + y + z)^4 + r  *(x*y + x*z + y*z)^2 + r  *(x + y + z)*(x*y*z)>,
+  <t^3 - 9*t^2 + 27*t - 27, "S4", (x + y + z)^4 + r^2*(x*y + x*z + y*z)^2 + r^2*(x + y + z)*(x*y*z)>,
+  <t^3 - 9*t^2 + 27*t - 27, "S4", (x + y + z)^4 + r^4*(x*y + x*z + y*z)^2 + r^4*(x + y + z)*(x*y*z)>
+
+  ];
+
+  for triple in list8 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 9;
+  K<r>:=ext<GF(3) | t^2 + 2*t + 2>;
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(9), grouped by automorphism group and Galois conjugacy:
+
+  list9 := [
+
+  // Automorphism group C1:
+  <t^3 - 10*t^2 + 25*t -  5, "C1", x^4 + r  *y^4 + x*y^2*z + r  *x^2*z^2 + x*y*z^2 + r^3*y*z^3 + z^4>,
+  <t^3 - 10*t^2 + 25*t -  5, "C1", x^4 + r^3*y^4 + x*y^2*z + r^3*x^2*z^2 + x*y*z^2 + r  *y*z^3 + z^4>,
+
+  <t^3 - 10*t^2 + 25*t -  1, "C1", x^4 + r^3*y^4 + x^2*y*z + x*y^2*z + r^5*y^3*z + r^2*x^2*z^2 + x*y*z^2 + z^4>,
+  <t^3 - 10*t^2 + 25*t -  1, "C1", x^4 + r  *y^4 + x^2*y*z + x*y^2*z + r^7*y^3*z + r^6*x^2*z^2 + x*y*z^2 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [x, y, -z] has order 2
+  <t^3 - 10*t^2 + 16*t + 48, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + r  *y^4) + (r^2*x^2 + r^6*x*y)*z^2 + z^4>,
+  <t^3 - 10*t^2 + 16*t + 48, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + r^3*y^4) + (r^6*x^2 + r^2*x*y)*z^2 + z^4>,
+
+  <t^3 - 10*t^2 + 21*t + 20, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + r*  y^4) + x*y*z^2 + r^2*z^4>,
+  <t^3 - 10*t^2 + 21*t + 20, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + r^3*y^4) + x*y*z^2 + r^6*z^4>,
+
+  <t^3 - 10*t^2 + 23*t + 10, "C2", (x^4 + x^3*y + x^2*y^2 + r  *y^4) + (r^2*x^2 + r  *x*y)*z^2 + z^4>,
+  <t^3 - 10*t^2 + 23*t + 10, "C2", (x^4 + x^3*y + x^2*y^2 + r^3*y^4) + (r^6*x^2 + r^3*x*y)*z^2 + z^4>,
+
+  <t^3 - 10*t^2 + 25*t     , "C2", (x^4 + x^3*y + r^2*x^2*y^2 + y^4) + (r^7*x^2 + r  *y^2)*z^2 + z^4>,
+  <t^3 - 10*t^2 + 25*t     , "C2", (x^4 + x^3*y + r^6*x^2*y^2 + y^4) + (r^5*x^2 + r^3*y^2)*z^2 + z^4>,
+
+  <t^3 - 10*t^2 + 26*t -  8, "C2", (x^4 + r  *x*y^3 + r  *y^4) + r  *x*y*z^2 + r^2*z^4>,
+  <t^3 - 10*t^2 + 26*t -  8, "C2", (x^4 + r^3*x*y^3 + r^3*y^4) + r^3*x*y*z^2 + r^6*z^4>,
+
+  <t^3 - 10*t^2 + 26*t -  8, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + r  *y^4) + r^2*x^2*z^2 + z^4>,
+  <t^3 - 10*t^2 + 26*t -  8, "C2", (x^4 + 2*x^2*y^2 + x*y^3 + r^3*y^4) + r^6*x^2*z^2 + z^4>,
+
+  <t^3 - 10*t^2 + 26*t -  8, "C2", (x^4 + r  *x^2*y^2 + r  *x*y^3 + r  *y^4) + (r^2*x^2 + 2*y^2)*z^2 + z^4>,
+  <t^3 - 10*t^2 + 26*t -  8, "C2", (x^4 + r^3*x^2*y^2 + r^3*x*y^3 + r^3*y^4) + (r^6*x^2 + 2*y^2)*z^2 + z^4>,
+
+  <t^3 - 10*t^2 + 27*t - 10, "C2", (x^4 + r  *x^3*y + r  *x^2*y^2 + r^6*y^4) + (r^3*x^2 + r^3*x*y)*z^2 + z^4>,
+  <t^3 - 10*t^2 + 27*t - 10, "C2", (x^4 + r^3*x^3*y + r^3*x^2*y^2 + r^2*y^4) + (r  *x^2 + r  *x*y)*z^2 + z^4>,
+
+  // Automorphism group D4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  // [x,y,z] --> [ y, x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  <t^3 - 10*t^2 + 28*t - 24, "D4", (x^4 + r^2*x^2*y^2 + y^4) + (x^2 + y^2)*z^2 + r^2*z^4>,
+  <t^3 - 10*t^2 + 28*t - 24, "D4", (x^4 + r^6*x^2*y^2 + y^4) + (x^2 + y^2)*z^2 + r^6*z^4>,
+
+  <t^3 - 10*t^2 + 32*t - 32, "D4", (x^4 + r  *x^2*y^2 + y^4) + (r^6*x^2 + r^6*y^2)*z^2 + z^4>,
+  <t^3 - 10*t^2 + 32*t - 32, "D4", (x^4 + r^3*x^2*y^2 + y^4) + (r^2*x^2 + r^2*y^2)*z^2 + z^4>,
+
+  // Automorphism group C2*C4:
+  // [x,y,z] --> [x,  y, r^2*z] has order 4
+  // [x,y,z] --> [x, -y,     z] has order 2
+  <t^3 - 10*t^2 + 24*t     , "C2*C4", x^4 + 2*x^2*y^2 + r  *y^4 + r^2*z^4>,
+  <t^3 - 10*t^2 + 24*t     , "C2*C4", x^4 + 2*x^2*y^2 + r^3*y^4 + r^6*z^4>,
+
+  // Automorphism group D4:C2:
+  // [x,y,z] --> [r^2*x, r^6*y, z] has order 4
+  // [x,y,z] --> [    y,     x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  // [x,y,z] --> [   -x,     y, z] has order 2
+  <t^3 - 10*t^2 + 12*t + 72, "D4:C2", x^4 + r*x^2*y^2 + y^4 + r*z^4>
+
+  ];
+
+  for triple in list9 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 11;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(11), grouped by automorphism group:
+
+  list11 := [
+
+  // Automorphism group C1:
+  <t^3 - 12*t^2 + 39*t - 21, "C1", x^4 + x^3*y + 2*x*y^3 + y^4 + 5*x^3*z + 7*y^2*z^2 + 6*x*z^3 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [x, y, -z] has order 2
+  <t^3 - 12*t^2 + 34*t + 12, "C2", (x^4 + 2*x^3*y + x*y^3 + y^4) + (3*x^2 + 5*y^2)*z^2 + z^4>,
+  <t^3 - 12*t^2 + 34*t + 12, "C2", (x^4 + 5*x^3*y + 2*x*y^3 + y^4) + (7*x^2 + 7*y^2)*z^2 + z^4>,
+  <t^3 - 12*t^2 + 36*t     , "C2", (x^4 + 9*x^3*y + 3*x^2*y^2 + 5*x*y^3 + y^4) + (x^2 + 3*y^2)*z^2 + z^4>,
+  <t^3 - 12*t^2 + 39*t - 20, "C2", (x^4 + 2*x^3*y + x^2*y^2 + y^4) + (3*x^2 + x*y + 5*y^2)*z^2 + z^4>,
+  <t^3 - 12*t^2 + 39*t - 20, "C2", (x^4 + 6*x^3*y + 4*x^2*y^2 + x*y^3 + y^4) + (7*x^2 + 6*y^2)*z^2 + z^4>,
+  <t^3 - 12*t^2 + 42*t - 36, "C2", (x^4 + 9*x^3*y + x^2*y^2 + y^4) + (x^2 + x*y)*z^2 + z^4>,
+  <t^3 - 12*t^2 + 43*t - 48, "C2", (x^4 + 2*x^3*y + x*y^3 + y^4) + 6*x^2*z^2 + z^4>,
+
+  // Automorphism group C2^2:
+  // [x,y,z] --> [-x,  y, z] has order 2
+  // [x,y,z] --> [ x, -y, z] has order 2
+  <t^3 - 12*t^2 + 44*t - 48, "C2^2", x^4 + 3*x^2*y^2 + y^4 + 2*x^2*z^2 + 4*y^2*z^2 + 2*z^4>,
+  <t^3 - 12*t^2 + 44*t - 48, "C2^2", x^4 + 3*x^2*y^2 + y^4 + 4*x^2*z^2 + 9*y^2*z^2 + 2*z^4>,
+
+  // Automorphism group C4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  <t^3 - 12*t^2 + 32*t + 24, "C4", (x^4 + 3*x^3*y + 6*x^2*y^2 + 8*x*y^3 + y^4) + (2*x^2 + 2*y^2)*z^2 + z^4>,
+
+  // Automorphism group S3:
+  // Every permutation of x, y, and z is an automorphism
+  <t^3 - 12*t^2 + 36*t     , "S3", (x + y + z)^4 + 7*(y*z + x*z + x*y)*(x + y + z)^2 +  4*(y*z + x*z + x*y)^2 + 7*x*y*z*(x + y + z)>,
+  <t^3 - 12*t^2 + 36*t     , "S3", (x + y + z)^4 + 7*(y*z + x*z + x*y)*(x + y + z)^2 +  3*(y*z + x*z + x*y)^2 + 7*x*y*z*(x + y + z)>,
+  <t^3 - 12*t^2 + 45*t - 54, "S3", (x + y + z)^4 + 3*(y*z + x*z + x*y)*(x + y + z)^2 + 10*(y*z + x*z + x*y)^2 + 6*x*y*z*(x + y + z)>,
+  <t^3 - 12*t^2 + 45*t - 50, "S3", (x + y + z)^4 + 7*(y*z + x*z + x*y)*(x + y + z)^2 +  5*(y*z + x*z + x*y)^2 + 3*x*y*z*(x + y + z)>,
+  <t^3 - 12*t^2 + 45*t - 50, "S3", (x + y + z)^4 + 7*(y*z + x*z + x*y)*(x + y + z)^2 +  7*(y*z + x*z + x*y)^2 + 9*x*y*z*(x + y + z)>,
+
+  // Automorphism group D4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  // [x,y,z] --> [ y, x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  <t^3 - 12*t^2 + 36*t     , "D4", (x^4 + x^2*y^2 + y^4) + (7*x^2 + 7*y^2)*z^2 + z^4>,
+  <t^3 - 12*t^2 + 48*t - 64, "D4", (x^4 + 3*x^2*y^2 + y^4) + (4*x^2 + 4*y^2)*z^2 + 2*z^4>,
+
+  // Automorphism group S4:
+  // Every permutation of x, y, and z is an automorphism
+  // Changing the sign of x, y, or z is an automorphism
+  <t^3 - 12*t^2 + 48*t - 64, "S4", x^4 + y^4 + z^4 + 3*(x^2*y^2 + x^2*z^2 + y^2*z^2)>,
+  <t^3 - 12*t^2 + 48*t - 64, "S4", x^4 + y^4 + z^4 + 6*(x^2*y^2 + x^2*z^2 + y^2*z^2)>,
+
+  // Automorphism group PSL(2,7) = PGL(2,3):
+  // Every permutation of x, y, and z is an automorphism
+  // Changing the sign of x, y, or z is an automorphism
+  // [x,y,z] --> [ 4*x + 8*y + 3*z, 7*x + 8*y + 3*z, y + z ] is an automorphism of order 7
+  <t^3 - 12*t^2 + 48*t - 64, "PSL(2,7)", x^4 + y^4 + z^4 + x^2*y^2 + x^2*z^2 + y^2*z^2>
+
+  ];
+
+  for triple in list11 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 13;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(13), grouped by automorphism group:
+
+  list13 := [
+
+  // Automorphism group C1:
+  <t^3 - 14*t^2 + 59*t - 70, "C2", x^4 + 4*x^3*y + 7*x^2*y^2 + 2*x*y^3 + y^4 + 12*x*y*z^2 + z^4>,
+
+  // Automorphism group C2:
+  // [x,y,z] --> [x, y, -z] has order 2
+  <t^3 - 14*t^2 + 51*t - 14, "C2", (8*x^4 + 2*x^3*y + 6*x^2*y^2 + 5*x*y^3 + 8*y^4) + x*y*z^2 + z^4>,
+  <t^3 - 14*t^2 + 57*t - 56, "C2", (x^4 + x^3*y + 2*x^2*y^2 + 3*x*y^3 + 5*y^4) + 2*x*y*z^2 + z^4>,
+  <t^3 - 14*t^2 + 58*t - 60, "C2", (8*x^4 + 5*x^3*y + x^2*y^2 + 2*x*y^3 + 5*y^4) + 2*x*y*z^2 + z^4>,
+
+  // Automorphism group C4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  <t^3 - 14*t^2 + 54*t - 36, "C4", (x^4 + x^3*y + 12*x*y^3 + y^4) + (x^2 + y^2)*z^2 + 5*z^4>,
+
+  // Automorphism group C2^2:
+  // [x,y,z] --> [-x,  y, z] has order 2
+  // [x,y,z] --> [ x, -y, z] has order 2
+  <t^3 - 14*t^2 + 60*t - 72, "C2^2", 2*x^4 + x^2*y^2 + 7*y^4 + x^2*z^2 + 3*y^2*z^2 + z^4>,
+
+  // Automorphism group D4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  // [x,y,z] --> [ y, x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  <t^3 - 14*t^2 + 60*t - 72, "D4", (x^4 + y^4) + (3*x^2 + 3*y^2)*z^2 + z^4>,
+  <t^3 - 14*t^2 + 60*t - 72, "D4", (8*x^4 + 7*x^2*y^2 + 8*y^4) + (5*x^2 + 5*y^2)*z^2 + z^4>,
+  <t^3 - 14*t^2 + 64*t - 96, "D4", (12*x^4 + 8*x^2*y^2 + 12*y^4) + (5*x^2 + 5*y^2)*z^2 + z^4>,
+
+  // Automorphism group D4:C2:
+  // [x,y,z] --> [5*x, 8*y, z] has order 4
+  // [x,y,z] --> [  y,   x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  // [x,y,z] --> [ -x,   y, z] has order 2
+  <t^3 - 14*t^2 + 60*t - 72, "D4:C2", x^4 + 4*x^2*y^2 + y^4 + z^4>,
+
+  // Automorphism group C4wrC2:
+  // [x,y,z] --> [5*x,   y, z] has order 4
+  // [x,y,z] --> [  x, 5*y, z] has order 4
+  // Together they generate C4^2
+  // [x,y,z] --> [y, x, z] has order 2, and conjugates each into the other
+  <t^3 - 14*t^2 + 64*t - 96, "C4wrC2", x^4 + y^4 + 2*z^4>
+
+  ];
+
+
+  for triple in list13 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 16;
+  K<r>:=ext<GF(2) | t^4 + t + 1>;
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(16), grouped by automorphism group and Galois conjugacy:
+
+  list16 := [
+
+  // Automorphism group D4:
+  // [x,y,z] --> [x + y, y + z, z] has order 4
+  // [x,y,z] --> [x    , y + z, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  <t^3 - 17*t^2 + 91*t - 147, "D4", x*(x + y)*(x + z)*(x + y + z) + r^7 *y^2*(y + z)^2 + r^3 *z^4>,
+  <t^3 - 17*t^2 + 91*t - 147, "D4", x*(x + y)*(x + z)*(x + y + z) + r^14*y^2*(y + z)^2 + r^6 *z^4>,
+  <t^3 - 17*t^2 + 91*t - 147, "D4", x*(x + y)*(x + z)*(x + y + z) + r^13*y^2*(y + z)^2 + r^12*z^4>,
+  <t^3 - 17*t^2 + 91*t - 147, "D4", x*(x + y)*(x + z)*(x + y + z) + r^11*y^2*(y + z)^2 + r^9 *z^4>,
+
+  <t^3 - 17*t^2 + 95*t - 175, "D4", x*(x + y)*(x + z)*(x + y + z) + r^3 *(y^4 + y*z^3) + r^7 *z^4>,
+  <t^3 - 17*t^2 + 95*t - 175, "D4", x*(x + y)*(x + z)*(x + y + z) + r^6 *(y^4 + y*z^3) + r^14*z^4>,
+  <t^3 - 17*t^2 + 95*t - 175, "D4", x*(x + y)*(x + z)*(x + y + z) + r^12*(y^4 + y*z^3) + r^13*z^4>,
+  <t^3 - 17*t^2 + 95*t - 175, "D4", x*(x + y)*(x + z)*(x + y + z) + r^9 *(y^4 + y*z^3) + r^11*z^4>
+
+  ];
+
+  for triple in list16 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 17;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(17), grouped by automorphism group:
+
+  list17 := [
+
+  // Automorphism group S3:
+  // Every permutation of x, y, and z is an automorphism
+  <t^3 - 18*t^2 +  96*t - 128, "S3", (x + y + z)^4 +  3*(y*z + x*z + x*y)*(x + y + z)^2 +  5*(y*z + x*z + x*y)^2 + 4*x*y*z*(x + y + z)>,
+  <t^3 - 18*t^2 + 105*t - 196, "S3", (x + y + z)^4 + 15*(y*z + x*z + x*y)*(x + y + z)^2 + 15*(y*z + x*z + x*y)^2 + 8*x*y*z*(x + y + z)>,
+
+  // Automorphism group D4:C2:
+  // [x,y,z] --> [4*x, 13*y, z] has order 4
+  // [x,y,z] --> [  y,    x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+  // [x,y,z] --> [ -x,    y, z] has order 2
+  <t^3 - 18*t^2 +  96*t - 128, "D4:C2", x^4 + y^4 + 2*z^4 + x^2*y^2>,
+
+  // Automorphism group S4:
+  // Every permutation of x, y, and z is an automorphism
+  // Changing the sign of x, y, or z is an automorphism
+  <t^3 - 18*t^2 + 108*t - 216, "S4", x^4 + y^4 + z^4 +  4*(y^2*z^2 + x^2*z^2 + x^2*y^2)>,
+  <t^3 - 18*t^2 + 108*t - 216, "S4", x^4 + y^4 + z^4 +  8*(y^2*z^2 + x^2*z^2 + x^2*y^2)>,
+  <t^3 - 18*t^2 + 108*t - 216, "S4", x^4 + y^4 + z^4 + 10*(y^2*z^2 + x^2*z^2 + x^2*y^2)>,
+  <t^3 - 18*t^2 + 108*t - 216, "S4", x^4 + y^4 + z^4 + 13*(y^2*z^2 + x^2*z^2 + x^2*y^2)>
+
+  ];
+
+  for triple in list17 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 19;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(19), grouped by automorphism group:
+
+  list19 := [
+
+  // Automorphism group D4:
+  // [x,y,z] --> [-y, x, z] has order 4
+  // [x,y,z] --> [ y, x, z] has order 2, and conjugates the order-4 automorphism above to its inverse
+
+  <t^3 - 20*t^2 + 128*t - 256, "D4", (x^4 + 3*x^2*y^2 + y^4) + ( 2*x^2 +  2*y^2)*z^2 + 2*z^4>,
+  <t^3 - 20*t^2 + 128*t - 256, "D4", (x^4 + 7*x^2*y^2 + y^4) + (18*x^2 + 18*y^2)*z^2 +   z^4>
+
+  ];
+
+  for triple in list19 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 23;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(23), grouped by automorphism group:
+
+  list23 := [
+
+  // Automorphism group S4:
+  // Every permutation of x, y, and z is an automorphism
+  // Changing the sign of x, y, or z is an automorphism
+  <t^3 - 24*t^2 + 192*t - 512, "S4", x^4 + y^4 + z^4 + 7*(y^2*z^2 + x^2*z^2 + x^2*y^2)>,
+
+
+  // Automorphism group PSL(2,7) = PGL(2,3):
+  // Every permutation of x, y, and z is an automorphism
+  // Changing the sign of x, y, or z is an automorphism
+  // [x,y,z] -> [19*x + 5*y + 18*z, 19*x + 18*y + 5*z, y + z]  is an automorphism of order 7
+  <t^3 - 24*t^2 + 192*t - 512, "PSL(2,7)", x^4 + y^4 + z^4 + 4*(y^2*z^2 + x^2*z^2 + x^2*y^2)>
+
+  ];
+
+  for triple in list23 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 29;
+  K:=GF(q);
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(29), grouped by automorphism group:
+
+  list29 := [
+
+  // Automorphism group C4^2:C3:C2:
+  // [x,y,z] --> [12*x,    y, z] has order 4
+  // [x,y,z] --> [   x, 12*y, z] has order 4
+  // Together they generate C4^2. 
+  // We can view C4^2 as the trace-0 subgroup of C4^3.
+  // Permutations of x, y, and z act on this.
+  // The resulting group of order 96 is isomorphic to C4^2:C3:C2.
+  <t^3 - 30*t^2 + 300*t - 1000, "C4^2:C3:C2", x^4 + y^4 + z^4>
+
+  ];
+
+
+  for triple in list29 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+
+
+
+  q := 32;
+  K<r>:=ext<GF(2) | t^5 + t^2 + 1>;
+  P2<x,y,z>:=ProjectivePlane(K);
+
+  // The curves over GF(32), grouped by automorphism group and Galois conjugacy:
+
+  list32 := [
+
+  // Automorphism group PSL(2,7) = PGL(3,2):
+  // All elements of PGL(3,2) give automorphisms
+  <t^3 - 33*t^2 + 363*t - 1331, "PSL(2,7)", (x^2 + x*z)^2+ (y^2 + y*z)*(x^2 + x*z) + (y^2 + y*z)^2 + z^4>
+
+  ];
+
+
+  for triple in list32 do
+    C := Curve(P2,triple[3]);
+    Append(~allcurves,<triple[1],triple[2],C>);
+  end for;
+
+  return allcurves;
+end function;
+
+
+function GroupInfo(G)
+  // Given a group G, return the sorted list of pairs [O_x, C_x] for all
+  // elements x of G, where O_x is the order of x and C_x is the size of the
+  // centralizer of x in G.
+
+  orders_and_centralizers := Sort([ [Order(x), #Centralizer(G,x)] : x in G]);
+  return orders_and_centralizers;
+end function;
+
+
+function AutoGroupInfo(G)
+  // Given an automorphism group G of a curve, return the sorted list of pairs
+  // [O_x, C_x] for all elements x of G, where O_x is the order of x and C_x is
+  // the size of the centralizer of x in G. The preceding function does not work
+  // for automorphism groups of curves, because Magma stores them as a different
+  // type of object.
+  
+  Gset := {};
+  i := -1;
+  repeat
+    i +:= 1;
+    Gset join:= {G.i};
+    repeat
+      s := #Gset;
+      Gset join:= {g*h : g,h in Gset};
+    until #Gset in {s, #G};
+  until #Gset eq #G;
+  orders_and_centralizers := 
+    Sort([ [Order(x), #{y : y in Gset | x*y eq y*x}] : x in Gset]);
+  return orders_and_centralizers;
+end function;        
+
+
+function IdentifyAutomorphismGroup(C);
+  // Given a curve C over a finite field, return a text string containing the
+  // label of its automorphism group.
+  
+  A := AutomorphismGroup(C);
+  Ainfo := AutoGroupInfo(A);
+  n := #A;
+  names := [];
+  for G in SmallGroups(n) do
+    if GroupInfo(G) eq Ainfo then
+      names cat:= [GroupName(G)];
+    end if;
+  end for;
+  assert #names eq 1;
+  return names[1];
+end function;
+
+
+function VerifyGenus3(allcurves);
+  // Given a list of triples, each consisting of a real Weil polynomial,
+  // a group label, and a plane quartic over a finite field, check that 
+  //   * the curves have genus 3 and no rational points;
+  //   * the real Weil polynomials are the correct ones for each curve;
+  //   * the group of rational automorphisms of the each curve us given by
+  //     the associated label;
+  //   * the curves are pairwise nonisomorphic; and
+  //   * the number of curves for each finite field, and the total number
+  //     of curves, are as given in the paper.
+  
+  alliswell := true;
+  
+  time for i in [1..#allcurves] do
+    triple := allcurves[i];
+    C := triple[3];
+    rwp := triple[1];
+    autos := triple[2];
+    q := #BaseRing(C);
+    t := Parent(rwp).1;
+    print "Working on curve number", i, "of", #allcurves, ": q =", q, ", automorphism group", autos;
+    if not Genus(C) eq 3 then
+      alliswell := false;
+      print "This curve does not have genus 3:", C;
+    end if;
+    if not #Places(C,1) eq 0 then
+      alliswell := false;
+      print "This curve is not pointless:", C;
+    end if;
+    wp := Numerator(Evaluate(LPolynomial(C),1/t)*t^6);
+    if not wp eq Evaluate(rwp,t + q/t)*t^3 then
+      alliswell := false;
+      print "The real Weil polynomial for this curve is not as stated:", C;
+    end if;
+    name := IdentifyAutomorphismGroup(C);
+    if not name eq autos then
+      alliswell := false;
+      print "The automorphism group of this curve is not as stated:", C;
+    end if;
+  end for;
+
+  if alliswell then
+    print "Each curve is excessive and has the specified real Weil polynomial and automorphism group.";
+  else 
+    return alliswell;
+  end if;
+
+  time for i in [1..#allcurves-1] do 
+    C1 := allcurves[i][3];
+    rwp1 := allcurves[i][1];
+    auto1 := allcurves[i][2];
+    q1 := #BaseRing(C1);
+    for j in [i+1..#allcurves] do
+      C2 := allcurves[j][3];
+      rwp2 := allcurves[j][1];
+      auto2 := allcurves[j][2];
+      q2 := #BaseRing(C2);
+      if q1 eq q2 and rwp1 eq rwp2 and auto1 eq auto2 and IsIsomorphic(C1,C2) then 
+        alliswell := false;
+        print "These two curves are isomorphic to one another:", C1, C2;
+      end if;
+    end for;
+  end for;
+  
+  if alliswell then
+    print "The curves are pairwise nonisomorphic.";
+  else
+    return alliswell;
+  end if;
+  
+  counts := [
+    [ 2,  4],
+    [ 3,  8],
+    [ 4, 21],
+    [ 5, 31],
+    [ 7, 32],
+    [ 8, 39],
+    [ 9, 27],
+    [11, 21],
+    [13, 11],
+    [16,  8],
+    [17,  7],
+    [19,  2],
+    [23,  2],
+    [29,  1],
+    [32,  1]
+    ];
+
+  for c in counts do
+    number := #[triple : triple in allcurves | #BaseRing(triple[3]) eq c[1]];
+    if number ne c[2] then
+      alliswell := false;
+      print "We have the wrong number of curves over the field of cardinality", c[1];
+    end if;
+  end for;
+  
+  if &+[c[2] : c in counts] ne 215 or #allcurves ne 215 then
+    alliswell := false;
+    print "We seem to have the wrong number of curves.";
+  end if;
+  
+  print "The number of curves agrees with the counts in the paper.";
+  
+  return alliswell;
+end function;
+   
+   
+
+
+/*
+
+Transcript of sample run:
+
+Magma V2.26-10    Thu Apr 28 2022 16:23:56 on winifred-20 [Seed = 2206909223]
+Type ? for help.  Type <Ctrl>-D to quit.
+> load "AllGenus3.magma";
+Loading "AllGenus3.magma"
+> time biglist := ExcessiveGenus3();
+Time: 0.010
+> time VerifyGenus3(biglist);
+Working on curve number 1 of 215 : q = 2 , automorphism group C2
+Working on curve number 2 of 215 : q = 2 , automorphism group C3
+Working on curve number 3 of 215 : q = 2 , automorphism group C7
+  [many other similar lines deleted]
+Working on curve number 213 of 215 : q = 23 , automorphism group PSL(2,7)
+Working on curve number 214 of 215 : q = 29 , automorphism group C4^2:C3:C2
+Working on curve number 215 of 215 : q = 32 , automorphism group PSL(2,7)
+Time: 4481.200
+Each curve is excessive and has the specified real Weil polynomial and automorphism group.
+Time: 2628.930
+The curves are pairwise nonisomorphic.
+The number of curves agrees with the counts in the paper.
+true
+Time: 7110.210
+
+*/
+

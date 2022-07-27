@@ -1,0 +1,32 @@
+# Rename this file to Makefile and set appropriate paths
+
+CC = /usr/public/opt/gcc-9.3.0/bin/gcc -g -Wall $(CFLAGS) -O3
+
+LDLIBS = -lm -lgmp -lflint
+FLINT_INCLUDE = /usr/public/include/flint
+FLINT_LIB = /usr/public/lib
+CFLAGS = -I$(FLINT_INCLUDE) -L$(FLINT_LIB)
+
+searches: plane_search genus7_plane_search
+
+points.o: plane.h
+
+fields.o: plane.h
+
+next_vec.o: plane.h
+
+curves.o: plane.h
+
+queue.o: plane.h
+
+utilities.o:
+
+plane_search: points.o fields.o next_vec.o curves.o utilities.o queue.o
+
+genus7_plane_search: points.o fields.o next_vec.o curves.o utilities.o queue.o
+
+clean:
+	rm -rf *.o
+	rm -rf *.dSYM
+	rm -f plane_search
+	rm -f genus7_plane_search
