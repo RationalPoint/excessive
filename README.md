@@ -4,7 +4,7 @@ This README gives an overview of the software used to perform the computations
 in
 
 [1] Xander Faber, Jon Grantham, and Everett Howe. "On the Maximum Gonality of
-    a Curve Over a Finite Field." Preprint, 2022. arXiv: ??
+    a Curve Over a Finite Field." Preprint, 2022. [arXiv:2207.14307 [math.AG]](https://arxiv.org/abs/2207.14307)
 
 CODE AUTHORS: Xander Faber (awfaber@super.org) and Everett Howe(however@alumni.caltech.edu)
 
